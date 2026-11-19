@@ -57,6 +57,7 @@ try {
   for (const script of ['test-archive-access', 'test-session-bridge', 'test-task-context', 'test-conversation-client', 'test-protocol-boundaries', 'test-conversation-host', 'test-qr-renderer']) run(script, process.execPath, ['--unhandled-rejections=strict', join(ROOT, 'scripts', script + '.mjs')])
   run('test-content-sources', process.execPath, [join(ROOT, 'scripts/test-content-sources.mjs')])
   run('test-content-analysis', process.execPath, [join(ROOT, 'scripts/test-content-analysis.mjs')])
+  run('test-package', process.execPath, [join(ROOT, 'scripts/test-package.mjs')])
   run('test-conversation-navigation-dispose', process.execPath, ['--unhandled-rejections=strict', join(ROOT, 'scripts/test-conversation-client.mjs')], { ...env, WECHAT_TEST_NAVIGATION_DISPOSE_PROBE: '1' })
   const data = join(base, 'data-evidence')
   mkdirSync(data, { mode: 0o700 })

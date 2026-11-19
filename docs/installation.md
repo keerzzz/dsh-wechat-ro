@@ -1,12 +1,12 @@
 # 插件安装与 DSH 版本
 
-本指南用于安装 `dsh-wechat-ro` **0.2.1**，包括 DSH 环境、源码安装、启用和首次使用。Windows、macOS、Linux 的功能进度见[平台支持说明](platform-support.md)。
+本指南用于安装 `dsh-wechat-ro` **0.2.2-rc.1**，包括 DSH 环境、预构建包或源码安装、启用和首次使用。Windows、macOS、Linux 的功能进度见[平台支持说明](platform-support.md)。
 
 ## 版本与兼容环境
 
 | 项目 | 声明要求 | 当前验证环境 |
 | --- | --- | --- |
-| 微信插件 | `0.2.1`，从本仓库源码安装 | 当前本机验收版本；尚无 npm 包或 GitHub Release |
+| 微信插件 | `0.2.2-rc.1`，GitHub Release 预构建包或源码 | 未发布 npm 包 |
 | DSH 宿主 | `engines.dsh: >=0.2.2-rc.5 <0.3.0` | 官方 npm **0.2.2-rc.5**，Linux 验证环境 |
 | DSH SDK peers | 大多数为 `^0.2.2-rc.5`；完整列表见 [package.json](../plugin/package.json) | 由兼容宿主提供，保持宿主与 peers 一致 |
 | Node.js | `>=24.9.0` | **24.15.0** |
@@ -33,9 +33,23 @@ Web UI 默认地址为 `http://127.0.0.1:3080`。在 DSH 中配置模型提供�
 
 检查现有安装版本：全局 CLI 使用 `dsh --version`；DSH 源码目录使用 `pnpm dsh --version`。这些命令检查被调用的安装，安装插件时继续使用同一宿主。
 
-## 2. 下载插件并安装依赖
+## 2. 选择安装地址
 
-在运行 DSH 的电脑上执行：
+### 推荐：预构建包
+
+在 DSH **插件 → 添加插件 → 包名或地址** 中只填写下面一行，再点击 **安装**：
+
+```text
+https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.1/dsh-wechat-ro-0.2.2-rc.1.tgz
+```
+
+DSH 使用 pnpm 安装包内的运行文件和第三方依赖，再识别 `dsh.bundle.patch`。包内已有 `lib/`、界面、声明和 Python 助手，安装时无需构建脚本。
+
+如果宿主无法访问 GitHub，将 [Release](https://github.com/keerzzz/dsh-wechat-ro/releases/tag/v0.2.2-rc.1) 中的 `.tgz` 下载到运行 DSH 的电脑，在输入框填写其绝对路径，例如 `/home/YourName/Downloads/dsh-wechat-ro-0.2.2-rc.1.tgz`。安装源选项控制第三方依赖的注册表，不能替代 GitHub 文件下载。
+
+### 可选：源码目录
+
+在运行 DSH 的电脑的**终端**执行：
 
 ```bash
 git clone https://github.com/keerzzz/dsh-wechat-ro.git
@@ -59,21 +73,44 @@ pnpm --dir plugin install --prod --frozen-lockfile --config.auto-install-peers=f
 
 1. 打开 DSH 侧栏的 **插件**。
 2. 选择 **添加插件**，或其菜单中的 **安装第三方插件**。
-3. 在 **包名或地址** 填入上一步 `plugin/` 的绝对路径，点击 **安装**。
-4. 核对安装信息为 `dsh-wechat-ro`、版本 `0.2.1`。
+3. 在 **包名或地址** 填入预构建包地址、`.tgz` 文件绝对路径，或源码 `plugin/` 的绝对路径，点击 **安装**。
+4. 核对安装信息为 `dsh-wechat-ro`、版本 `0.2.2-rc.1`。
 5. 安装完成后点击 **立即启用**；也可在 **已安装插件** 中打开该组合包并启用。
-6. 查看组合包的三个组件，确认均为 active／已激活，再打开原生会话里的 **微信** 侧栏。
+6. 查看组合包的三个组件，确认均为 active／已激活，再打开原生会话里的 **微信** 侧栏。从源码链接切换到发布包的本机验收需要重启 Host；若组件仍显示“未运行”，重启后再次核对。
 
 DSH 自动读取 [cordis.patch.yml](../plugin/cordis.patch.yml)，加载查询模块、控制器和微信任务预设。安装页没有可管理的 profile 时，使用正常的 DSH Web／桌面 profile 启动。组件出现 pending／failed 时，查看 Host 日志中的缺失依赖或错误，再核对上表的 DSH 与 Node.js 版本。
 
 这些安装入口和启用操作来自 DSH 官方[插件管理器说明](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/client/ui-plugin-manager/README.zh.md)。
+
+### 常见安装错误
+
+| 错误或输入 | 原因与处理 |
+| --- | --- |
+| `not a package name the registry accepts` | 输入框接受一个安装地址；将 `git clone` / `cd` / `pnpm` 命令放到终端执行，或直接使用上面的 `.tgz` 地址 |
+| 仓库首页、仓库根目录、`/tree/main/plugin` 网页地址 | 本仓库只有 `plugin/` 是组合包；使用 `.tgz` 或宿主上 `plugin/` 的绝对路径 |
+| 无法访问 GitHub | Git 连接探测或文件下载失败；将 `.tgz` 文件传到宿主后从本地路径安装 |
+| `already-installed` | 先在插件详情中卸载该包，再安装新版本；DSH 更新第三方包需要先停止原组件 |
+| `ERR_PNPM_UNEXPECTED_STORE` | 当前安装器的 pnpm 主版本与 profile 原依赖仓库不同；使用该 profile 原来的 pnpm，不用插件开发环境的 pnpm 替换宿主安装器 |
+| 安装后 pending / failed | 查看插件组件状态和 Host 日志，核对 DSH 与 Node.js 版本、运行依赖 |
+
+DSH 的组合包由 `package.json` 中的 `dsh.bundle.patch` 声明；安装将依赖写入 `$DSH_HOME/profiles/<name>/package.json`，启用将包加入 `dsh.profile.bundles`。Loader 按组合包、profile 和用户 patch 的顺序加载组件；卸载先停组件，再移除 profile 依赖。安装完成后仍需核对三个组件均为运行中。
+
+已有 profile 的 pnpm 主版本可从 `node_modules/.modules.yaml` 的 `packageManager` 查看。需指定安装器时，DSH 官方 `plugin-manager` 支持在当前 profile 的 `cordis.patch.yml` 中配置：
+
+```yaml
+- id: plugin-manager
+  config:
+    pnpmCommand: /absolute/path/to/the/profiles/pnpm
+```
+
+填写实际可执行路径，并保留该行已有的其他 config 配置。插件自身的锁文件与测试 pnpm 版本独立于宿主 profile。
 
 ### 可选：用 CLI 安装到 Web profile
 
 在已有兼容宿主上，也可使用它的 `dsh` CLI：
 
 ```bash
-dsh plugin --profile web add /absolute/dsh-wechat-ro/plugin
+dsh plugin --profile web add https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.1/dsh-wechat-ro-0.2.2-rc.1.tgz
 dsh web
 ```
 
