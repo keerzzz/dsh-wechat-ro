@@ -8,7 +8,7 @@ body:
     attributes:
       label: 运行环境
       description: 插件版本或提交号、系统、Node.js 和 DSH 版本。
-      placeholder: '0.2.0 / Ubuntu 24.04 / Node 24.15.0 / DSH ...'
+      placeholder: '0.2.1 / Ubuntu 24.04 / Node 24.15.0 / DSH ...'
     validations:
       required: true
   - type: textarea

@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import type { InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol';
 import type { JsonObject } from './wire.js';
 import type { TaskAccessState, TaskWorkspace, TaskWorkspaceGrant, TaskDirectoryGrant, TaskSourceQuery, TaskFileRequest, TaskHistoricalState, TaskHistoricalResult, TaskHistoryReceipt, TaskFirstTextState, TaskFirstTextResult, TaskFirstTextReceipt, TaskFirstTextModelRequest } from './task-access.js';
-import type { SealedFirstTextModelSelection, SealedFirstTextModelSummary } from '@deepseek-ai/dsh-agent';
+import type { TaskFirstTextModelSelection, TaskFirstTextModelSummary } from './task-access.js';
 import type { WeixinUpdatesDiagnostic } from './weixin-api.js';
 export type ConversationErrorCode = 'INVALID_REQUEST' | 'NOT_AUTHORIZED' | 'SESSION_NOT_READY' | 'SNAPSHOT_REQUIRED' | 'SNAPSHOT_DENIED' | 'NETWORK_DISABLED' | 'QR_UNAVAILABLE' | 'PAIRING_REQUIRED' | 'PAIRING_ALREADY_STORED' | 'PAIRING_STORAGE_FAILED' | 'PAIRING_STATE_INVALID' | 'OWNER_MISMATCH' | 'SHARED_CONTEXT_DENIED' | 'BUSY' | 'CANCELLED' | 'UNAVAILABLE' | 'ACTION_FAILED' | 'LOCAL_HISTORY_CLIENT_REQUIRED' | 'LOCAL_HISTORY_FAILED' | 'ARCHIVE_QUERY_LIMIT' | 'HISTORY_OPEN_FAILED' | 'HISTORY_ALREADY_OPEN' | 'HISTORY_INVALID' | 'SESSION_CREATE_FAILED' | 'SESSION_PERSIST_FAILED' | 'HISTORY_WRITE_FAILED' | 'WECHAT_NETWORK_FAILED' | 'WECHAT_REQUEST_TIMEOUT' | 'WECHAT_HTTP_REJECTED' | 'WECHAT_REQUEST_REJECTED' | 'WECHAT_RESPONSE_TYPE_INVALID' | 'WECHAT_RESPONSE_JSON_INVALID' | 'WECHAT_RESPONSE_TOO_LARGE' | 'WECHAT_RESPONSE_INVALID' | 'WECHAT_ORIGIN_REJECTED' | 'WECHAT_REDIRECT_REJECTED';
 export interface ConversationState {
@@ -320,8 +320,8 @@ export interface TaskConversationWire {
     }>;
     readonly firstTextResultSchema: z.ZodType<TaskFirstTextResult>;
     readonly firstTextReceiptSchema: z.ZodType<TaskFirstTextReceipt>;
-    readonly firstTextModelSchema: z.ZodType<SealedFirstTextModelSummary>;
-    readonly firstTextSelectionSchema: z.ZodType<SealedFirstTextModelSelection>;
+    readonly firstTextModelSchema: z.ZodType<TaskFirstTextModelSummary>;
+    readonly firstTextSelectionSchema: z.ZodType<TaskFirstTextModelSelection>;
     readonly firstTextModelRequestSchema: z.ZodType<TaskFirstTextModelRequest>;
     readonly sourceQuerySchema: z.ZodType<TaskSourceQuery>;
     readonly fileQuerySchema: z.ZodType<Extract<TaskFileRequest, {

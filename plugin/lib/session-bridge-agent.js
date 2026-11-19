@@ -1,3 +1,4 @@
+import { NativeToolExecutor } from '@deepseek-ai/dsh-tool-executor-native';
 // Agent-plane contribution for the ONLY persistent preset used by the native bridge.
 // There is deliberately no host-global tool, grant, transport, SQL, or path input.
 import { scopeOf } from '@deepseek-ai/dsh-scope';
@@ -148,7 +149,7 @@ export function installSessionBridgePolicy(agentCtx, agent, sandboxPolicy) {
   const tools = agentCtx.get('tools');
   const systemPrompt = agentCtx.get('systemPrompt');
   if (!tools || typeof tools.register !== 'function' || typeof tools.restrict !== 'function'
-    || typeof tools.guard !== 'function' || typeof tools.presentAs !== 'function'
+    || typeof tools.guard !== 'function' || typeof tools.setExecutor !== 'function'
     || !systemPrompt || typeof systemPrompt.section !== 'function') fail('unsafe-session');
   const sessionId = agent.session.id; // CLOSED OVER, never a model parameter
   const disposers = [];
@@ -205,14 +206,22 @@ export function installSessionBridgePolicy(agentCtx, agent, sandboxPolicy) {
     // Mask first, then last-mile deny guard. No tool is published while unguarded.
     disposers.push(tools.restrict({ allow: [] }));
     disposers.push(tools.guard(exec => policyAllows(policy, exec) ? undefined : 'Only the private read-only archive query is permitted.'));
-    disposers.push(tools.presentAs('native'));
+    const nativeExecutor = new NativeToolExecutor(agentCtx);
+    disposers.push(tools.setExecutor({
+      describe(definitions) { return nativeExecutor.describe(definitions.filter(tool => tool.name === SESSION_BRIDGE_TOOL)); },
+      execute(input) { return nativeExecutor.execute(input); },
+    }));
+    disposers.push(agentCtx.on('llm/stream', (request, next) => {
+      if (request.sessionId === agent.session.id && request.tools?.some(tool => tool.name !== SESSION_BRIDGE_TOOL)) fail('unsafe-session');
+      return next();
+    }, { prepend: true }));
     disposers.push(systemPrompt.section({ name: SESSION_BRIDGE_PROMPT, order: 0, text: PROMPT_TEXT, complete: true, interpolate: false }));
     disposers.push(agentCtx.on('system-prompt/assemble', async (_assembly, context, next) => {
       if (context.agent !== agent) return next();
       if (!policyAllows(policy, { agent, name: SESSION_BRIDGE_TOOL })) fail('unsafe-session');
       const assembly = await next();
       if (!policyAllows(policy, { agent, name: SESSION_BRIDGE_TOOL })) fail('unsafe-session');
-      return { ...assembly, tools: assembly.tools.filter(tool => tool.name === SESSION_BRIDGE_TOOL) };
+      return assembly;
     }, { prepend: true }));
     setSandboxMode(agent.session, 'read-only');
     if (sandboxPolicy.resolve({ session: agent.session }).mode !== 'read-only') fail('unsafe-session');

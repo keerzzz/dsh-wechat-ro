@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-import { homedir as desktopHome } from 'node:os';
-import { resolve as desktopPath } from 'node:path';
 // Coordinator isolation tests plus controlled public-SDK Session/scope carriers.
 // Native Agent/SQLite/UI also have separate real-SDK suites.
 // Every credential, transport, domain and archive below is synthetic; no live action.
@@ -21,7 +19,7 @@ const SID = 'wechat-native-ro-00000000-0000-4000-8000-000000000001';
 const SID2 = 'wechat-native-ro-00000000-0000-4000-8000-000000000002';
 const CONTEXT = 'synthetic-desktop-session';
 const ROOT = '/tmp/SYNTHETIC_COORDINATOR_SNAPSHOT_NOT_READ';
-const ORIGINAL = desktopPath(desktopHome(), 'Documents/xwechat_files');
+const ORIGINAL = '/home/keer/Documents/xwechat_files';
 let cases = 0;
 const fixtures = [], carriers = [];
 const watchedIo = { filesystem: 0, process: 0, network: 0 };
@@ -186,12 +184,13 @@ async function controlledCarrier() {
     const tools = {
       restrict(value) { assert.deepEqual(value, { allow: [] }); calls.policies++; return disposer; },
       guard(value) { assert.equal(typeof value, 'function'); return disposer; },
-      presentAs(value) { assert.equal(value, 'native'); return disposer; },
+      setExecutor(value) { assert.equal(typeof value.describe, 'function'); assert.equal(typeof value.execute, 'function'); return disposer; },
       register(definition) { assert.equal(definition.name, SESSION_BRIDGE_TOOL); definitions.set(definition.name, definition);
         return () => definitions.delete(definition.name); },
       get(name, key) { assert.equal(key, scopeOf(agentCtx)); return definitions.get(name); },
     };
     const systemPrompt = { section(value) { assert.equal(value.complete, true); assert.equal(value.interpolate, false); return disposer; } };
+    Object.defineProperty(agentCtx, 'tools', { configurable: true, value: tools });
     const inheritedGet = agentCtx.get.bind(agentCtx);
     Object.defineProperty(agentCtx, 'get', { value: name => name === 'tools' ? tools : name === 'systemPrompt' ? systemPrompt : inheritedGet(name) });
     const inbox = { nextTurn: [...controls.pendingInputs], nextStep: [], remove(id) {
@@ -517,7 +516,7 @@ try {
   await test('owner confirmed runtime replacement resumes the same native SID once without grant/channel migration', async () => {
     const carrier = await controlledCarrier(), first = carrier.newRuntime();
     const ordinaryRecord = { createdAt: 1, mayContainArchiveData: true }; carrier.records.set(CONTEXT, ordinaryRecord);
-    const created = await create(first); assert.equal(created.ok, true); assert.equal(created.state.prepared, true);
+    const created = await create(first); assert.equal(created.ok, true, JSON.stringify(created)); assert.equal(created.state.prepared, true);
     const id = created.result.sessionId; assert.notEqual(id, CONTEXT); assert.equal(created.state.sessionId, id);
     assert.equal(carrier.calls.creates, 1); assert.equal(carrier.calls.resumes, 0);
     const granted = await first.runtime.action({ action: 'grantSnapshot', sessionId: id, root: ROOT, allConversations: false,
@@ -666,7 +665,7 @@ try {
     for (const request of [{ action: 'send', sessionId: SID }, { action: 'createConversation', contextSessionId: CONTEXT, actor: 'owner', confirmation: 'create-readonly-conversation' },
       { action: 'startChannel', sessionId: SID, allowSharedContext: false, confirmation: 'poll-and-reply' },
       { action: 'queryArchive', sessionId: SID, query: { action: 'sql', query: 'SELECT 1' } }]) assert.equal((await f.runtime.action(request)).ok, false);
-    for (const root of [ORIGINAL, ORIGINAL + '/db', desktopPath(desktopHome(), 'Documents')]) {
+    for (const root of [ORIGINAL, ORIGINAL + '/db', '/home/keer/Documents']) {
       const value = await f.runtime.action({ action: 'grantSnapshot', sessionId: SID, root, allConversations: true, talkers: [], fromTs: null, toTs: null, allowWechat: false, confirmation: 'read-decrypted-snapshot' });
       assert.equal(value.ok, false); assert.equal(value.error.code, 'SNAPSHOT_DENIED');
     }
@@ -1148,33 +1147,19 @@ try {
     assert.equal(TASK_WIRE.firstTextResultSchema.safeParse({ firstTextContext: context, receipt: { ...receipt, auditCommitted: false } }).success, false);
     void purpose;
   });
-  await test('new first-text Owner forwards only the prior IDs and validates the result without channel effects', async () => {
-    const priorRunId = '10000000-0000-4000-8000-000000000001', priorConsentId = '20000000-0000-4000-8000-000000000001';
-    const receipt = { purpose: 'first-text-once', operation: 'new-input', priorRunId, priorConsentId,
-      decisionId: '30000000-0000-4000-8000-000000000001', newInputAllowed: true, auditCommitted: true };
-    for (const malformed of [false, true, 'missing-capability']) {
-      const f = taskFixture(); await taskCreate(f); let forwarded = 0;
-      for (const name of ['getHistoricalState', 'reviewHistoricalContext', 'authorizeHistoricalContext', 'shareHistoricalContext',
-        'revokeHistoricalContext', 'reserveHistoricalText', 'verifyHistoricalText', 'finishHistoricalText']) f.data[name] = () => { throw new Error('New-input route must not call historical execution'); };
-      f.taskBridge.replyHistorical = () => { throw new Error('New-input route must not call model execution'); };
-      const context = { version: 1, purpose: 'first-text-once', supported: true, required: true, reason: null, phase: 'blocked',
-        workspace: { id: 'synthetic-task-workspace', root: TASK_WORKSPACE }, consumedCount: 1, consentId: null, sharingConfirmed: false,
-        executable: false, receipts: [receipt], model: null, native: null, preparation: null, newInputAllowed: true };
-      if (malformed !== 'missing-capability') f.data.allowNewFirstText = async (id, request, signal) => {
-        forwarded++; assert.equal(id, TASK_SID); assert.equal(signal.aborted, false);
-        assert.deepEqual(request, { priorRunId, priorConsentId, confirmation: 'allow-new-first-text-after-unknown' });
-        return { firstTextContext: context, receipt: malformed ? { ...receipt, body: 'SYNTHETIC_PRIVATE_TEXT' } : receipt };
-      };
-      const before = structuredClone(f.runtime.getState({ kind: 'task', sessionId: TASK_SID }).task);
-      const result = await taskAction(f, 'allowNewFirstText', { priorRunId, priorConsentId, confirmation: 'allow-new-first-text-after-unknown' });
-      assert.equal(result.ok, malformed === false);
-      if (malformed === false) assert.deepEqual(result.result, { firstTextContext: context, receipt });
-      if (malformed === 'missing-capability') assert.deepEqual(result, { ok: false, error: { code: 'UNAVAILABLE' } });
-      assert.equal(forwarded, malformed === 'missing-capability' ? 0 : 1);
-      assert.equal(JSON.stringify(result).includes('SYNTHETIC_PRIVATE_TEXT'), false);
-      assert.deepEqual(f.runtime.getState({ kind: 'task', sessionId: TASK_SID }).task, before);
-      assert.equal(f.counts.credentialFactory + f.counts.channelFactory + f.counts.apiFactory + f.counts.polls + f.counts.textPolls + f.counts.replies, 0);
-    }
+  await test('retired first-text recovery refuses execution before data, channel or model effects', async () => {
+    const f = taskFixture(); await taskCreate(f);
+    let forwarded = 0;
+    f.data.allowNewFirstText = () => { forwarded++; throw new Error('Retired recovery must not be forwarded'); };
+    const before = structuredClone(f.runtime.getState({ kind: 'task', sessionId: TASK_SID }).task);
+    const result = await taskAction(f, 'allowNewFirstText', {
+      priorRunId: '10000000-0000-4000-8000-000000000001',
+      priorConsentId: '20000000-0000-4000-8000-000000000001', confirmation: 'allow-new-first-text-after-unknown',
+    });
+    assert.deepEqual(result, { ok: false, error: { code: 'UNAVAILABLE' } });
+    assert.equal(forwarded, 0);
+    assert.deepEqual(f.runtime.getState({ kind: 'task', sessionId: TASK_SID }).task, before);
+    assert.equal(f.counts.credentialFactory + f.counts.channelFactory + f.counts.apiFactory + f.counts.polls + f.counts.textPolls + f.counts.replies, 0);
   });
   await test('update diagnostic refuses unavailable capability without polling or replying', async () => {
     const f = taskFixture({ withoutDiagnostics: true }); await taskCreate(f);
@@ -1594,7 +1579,7 @@ try {
     f.liveSessions.delete(CONTEXT);
     const unloaded = await f.runtime.action(request); assert.equal(unloaded.ok, false); assert.equal(unloaded.error.code, 'SESSION_NOT_READY');
     assert.equal(f.counts.rosterReads, 1);
-    for (const root of [ORIGINAL, ORIGINAL + '/db', desktopPath(desktopHome(), 'Documents')]) {
+    for (const root of [ORIGINAL, ORIGINAL + '/db', '/home/keer/Documents']) {
       const forbidden = await f.runtime.action({ ...request, root }); assert.equal(forbidden.ok, false); assert.equal(forbidden.error.code, 'SNAPSHOT_DENIED');
     }
     assert.equal(f.counts.rosterReads, 1); assert.deepEqual(watchedIo, { filesystem: 0, process: 0, network: 0 });

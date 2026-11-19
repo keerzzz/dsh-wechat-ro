@@ -1,11 +1,9 @@
-import { homedir as desktopHome } from 'node:os';
-import { resolve as desktopPath } from 'node:path';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { SessionBridgeError } from './session-bridge-agent.js';
 
-const PROTECTED_SOURCE_ROOT = desktopPath(desktopHome(), 'Documents/xwechat_files');
+const PROTECTED_SOURCE_ROOT = '/home/keer/Documents/xwechat_files';
 const fail = code => { throw new SessionBridgeError(code); };
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const fixedError = (error, fallback) => error instanceof SessionBridgeError ? error : new SessionBridgeError(fallback);
@@ -407,6 +405,7 @@ export function createNativeSessionBridge(ctx, data, timeoutMs, policy) {
   }
 
   function reply(sessionId, text, metadata, signal, historyPermit, continuation = false) {
+    if (historyPermit !== undefined) fail('archive-denied');
     check(signal);
     if (!policy.isSessionId(sessionId) || typeof text !== 'string' || text.trim().length === 0
       || text.includes('\0') || Buffer.byteLength(text, 'utf8') > info.maxInputBytes
@@ -418,13 +417,9 @@ export function createNativeSessionBridge(ctx, data, timeoutMs, policy) {
     if (existing?.pending) fail('busy');
     const controller = new AbortController();
     const cancelled = deferred();
-    let record, attempt, message, cancelError, historyLease, leaseRetained = false;
-    const firstText = historyPermit?.purpose === 'first-text-once';
-    const sealedPolicy = firstText ? policy.firstText : policy.historical;
+    let record, attempt, message, cancelError;
     const replyAllowed = runtime => {
-      if (historyPermit === undefined) return runtime.data.canShare(sessionId) === true;
-      if (historyPermit?.sessionId !== sessionId || !sealedPolicy) return false;
-      try { return sealedPolicy.verify(historyPermit) === true; } catch { return false; }
+      return runtime.data.canShare(sessionId) === true;
     };
     const cancelOwn = () => {
       if (!record?.agent || !message) return;
@@ -449,8 +444,7 @@ export function createNativeSessionBridge(ctx, data, timeoutMs, policy) {
     const work = track((async () => {
       let unobserve;
       try {
-        if (firstText) { if (!isPrepared(sessionId)) fail('not-prepared'); }
-        else await ensure(sessionId, controller.signal);
+        await ensure(sessionId, controller.signal);
         check(controller.signal);
         record = owned.get(sessionId);
         if (!record?.agent || !isPrepared(sessionId)) fail('not-prepared');
@@ -470,28 +464,7 @@ export function createNativeSessionBridge(ctx, data, timeoutMs, policy) {
         attempt = { turn: null, admitted: false, mixed: false, invalid: false, ended: false, modelSelectionNotices: historyPermit === undefined,
           completed: false, text: '', afterSeq: record.agent.session.seq, terminal: deferred(), cancel };
         record.attempt = attempt;
-        if (historyPermit !== undefined) {
-          const capability = firstText ? record.agent.sealedFirstText : record.agent.sealedHistory;
-          if (capability?.version !== 1 || typeof capability.acquire !== 'function') fail('archive-denied');
-          sealedPolicy.bindInput(historyPermit, message.id);
-          const evidence = firstText ? sealedPolicy.observation(historyPermit) : undefined;
-          const maxOutputBytes = firstText ? Math.min(info.maxReplyBytes, sealedPolicy.maxOutputBytes) : undefined;
-          historyLease = capability.acquire({ input: message, ...(firstText ? { ...evidence, maxOutputBytes } : {}), verify(binding) {
-            if (disposed || cancelError || record.attempt !== attempt || attempt.mixed || attempt.invalid || !attempt.admitted
-              || binding.agent !== record.agent || binding.session !== record.agent.session || binding.input.id !== message.id
-              || binding.input.role !== 'user' || binding.input.source?.kind !== SOURCE || binding.input.source.messageId !== metadata.messageId
-              || !Array.isArray(binding.input.content) || binding.input.content.length !== 1 || binding.input.content[0].type !== 'text' || binding.input.content[0].text !== text
-              || binding.turn !== attempt.turn || binding.attempt !== 1
-              || firstText && (binding.purpose !== 'first-text-once' || binding.step !== 1 || binding.maxOutputBytes !== maxOutputBytes
-                || binding.observation !== evidence.observation || binding.modelObservation !== evidence.modelObservation)) return false;
-            try {
-              sealedPolicy.bindInput(historyPermit, message.id, binding.turn);
-              return sealedPolicy.verify(historyPermit) === true;
-            } catch { return false; }
-          } });
-          if (!historyLease) fail('archive-denied');
-          if (firstText) { sealedPolicy.retainLease(historyPermit, historyLease); leaseRetained = true; }
-        }
+
         record.usedIds.add(metadata.messageId);
         unobserve = observeAttempt(record, message, attempt);
         check(controller.signal);
@@ -505,7 +478,7 @@ export function createNativeSessionBridge(ctx, data, timeoutMs, policy) {
           throw cancelError;
         }
         if (!attempt.completed || !attempt.admitted || attempt.mixed || attempt.invalid) fail('not-completed');
-        const finishReply = historyPermit === undefined ? policy.finishReply : sealedPolicy.finishReply;
+        const finishReply = policy.finishReply;
         if ((!attempt.text && !finishReply) || Buffer.byteLength(attempt.text, 'utf8') > info.maxReplyBytes) fail('no-reply');
         if (!isPrepared(sessionId) || !replyAllowed(runtime)) fail('archive-denied');
         await flush(record.agent.session, runtime.sessions); // completed output barrier BEFORE transport
@@ -530,13 +503,7 @@ export function createNativeSessionBridge(ctx, data, timeoutMs, policy) {
         throw cancelError ?? publicError;
       } finally {
         try {
-          if (historyLease) {
-            try { sealedPolicy.recordRequests(historyPermit, historyLease.requestsReserved); }
-            finally {
-              if (firstText && leaseRetained) sealedPolicy.drainLease(historyPermit);
-              else historyLease.release();
-            }
-          }
+
         } finally {
           unobserve?.();
           if (record && record.attempt === attempt) record.attempt = null;

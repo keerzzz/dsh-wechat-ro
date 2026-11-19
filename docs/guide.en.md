@@ -16,7 +16,7 @@ In the implemented environment, it connects a personal WeChat bot to a native DS
 
 ## Installation and DSH versions
 
-The plugin is **0.2.0**. It declares **DSH `>=0.2.1-rc.2`**; the validated local host is based on **0.2.1-rc.2 with host extensions**. Node.js **24.15.0** and plugin pnpm **10.34.1** were used. The original DSH release does not contain the `sealedHistory` and `sealedFirstText` APIs used by native tasks; a distributable host extension setup is still pending. See the [installation guide and compatibility table](installation.md).
+Plugin **0.2.1** supports the official **DSH `>=0.2.2-rc.5 <0.3.0`** release and **Node.js `>=24.9.0`**. Automatic replies use native DSH conversations; the previous sealed history and first-text workflows have been retired. Installation requires no DSH source changes. See the [installation guide](installation.md) and [upgrade notes](upgrading-0.2.1.md).
 
 On the computer running DSH:
 

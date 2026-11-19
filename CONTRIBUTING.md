@@ -28,16 +28,20 @@ node scripts/run-tests.mjs --only test-daily-cards
 
 DSH 客户端、声明和原生会话门禁需要另行准备兼容的 DSH SDK 开发环境；独立依赖安装不会提供这些能力。已有环境中的界面修改需运行 `test-conversation-client`，类型或接口修改需运行相应声明、消费者和 Host 门禁。真实扫码、手机收发与重启恢复在本人账号上另行验收。
 
-已有 SDK 开发环境时，明确指定运行时目录，不依赖作者本机路径：
+本次原生桥接回归使用官方 npm DSH **0.2.2-rc.5**；插件的 `node_modules/@deepseek-ai` 依赖应解析到同一版本。客户端回归还需在该运行环境中安装 React/ReactDOM、Testing Library、JSDOM，以及官方客户端发布的 `/src/*` 辅助模块依赖。类型检查使用本插件的 TypeScript 6.0.3。
 
 ```bash
 cd plugin
-WECHAT_UI_TEST_RUNTIME=/absolute/deepseek-harness \
-  node scripts/run-tests.mjs --only test-conversation-host
-DSH_CHECKOUT=/absolute/deepseek-harness \
-  node scripts/run-tests.mjs --only test-session-bridge
+node scripts/run-tests.mjs --only declarations
+node scripts/run-tests.mjs --only consumer-types
+node scripts/run-tests.mjs --only test-session-bridge
+node scripts/run-tests.mjs --only test-task-context
+node scripts/run-tests.mjs --only test-conversation-host
+WECHAT_UI_TEST_RUNTIME=/absolute/official-dsh-runtime \
+  node scripts/run-tests.mjs --only test-conversation-client
 ```
 
+每次只运行一个门禁，失败后先修复。原生桥接不依赖 DSH 源码 checkout，客户端回归只读取官方包导出的测试辅助源码，不改写宿主。
 兼容 SDK peers 需由该开发环境提供。可选旧管理页的浏览器测试还需 `WECHAT_BROWSER_MODULE`（Playwright 模块路径）和 `WECHAT_DESIGN_PROBE_ROOT`（probe.mjs/rules.mjs 所在目录）；普通离线门禁不需要这些工具。
 
 ## 提交与审阅

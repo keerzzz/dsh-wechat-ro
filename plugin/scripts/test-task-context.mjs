@@ -1,10 +1,8 @@
-import { homedir as desktopHome } from 'node:os';
-import { resolve as desktopPath } from 'node:path';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile, rm, symlink, link } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { randomUUID, createHash } from 'node:crypto';
@@ -18,6 +16,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session';
 import SessionProjections from '@deepseek-ai/dsh-session-projection';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import ToolRuntime from '@deepseek-ai/dsh-tools';
+import * as NativeToolExecutorPlugin from '@deepseek-ai/dsh-tool-executor-native';
 import AgentRegistry, { installModelSelection } from '@deepseek-ai/dsh-agent';
 import AgentLoop from '@deepseek-ai/dsh-agent-loop';
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model';
@@ -32,17 +31,15 @@ import { createWeixinApi } from 'dsh-wechat-ro/weixin-api';
 import { createWeixinMediaApi } from 'dsh-wechat-ro/weixin-media';
 import { createWeixinChannel, validateWeixinState } from 'dsh-wechat-ro/weixin-channel';
 
-const checkout = process.env.WECHAT_UI_TEST_RUNTIME ?? '/REPLACE_WITH_DSH_CHECKOUT';
-const sdk = path => pathToFileURL(join(checkout, path)).href;
-const { default: FsLocal } = await import(sdk('packages/fs/fs-local/lib/index.js'));
-const { default: WorkspaceRegistry } = await import(sdk('packages/workspace/workspace/lib/index.js'));
-const { default: WorkingDirectory } = await import(sdk('packages/session/working-directory/lib/index.js'));
-const { default: SessionQuery } = await import(sdk('packages/session-query/session-query-sqlite/lib/index.js'));
-const { default: AgentPresets } = await import(sdk('packages/preset/agent-preset-registry/lib/index.js'));
-const { Storage } = await import(sdk('packages/storage/storage/lib/index.js'));
-const JsonStorage = await import(sdk('packages/storage/storage-json/lib/index.js'));
-const StorageDomain = await import(sdk('packages/storage/storage-domain/lib/index.js'));
-const { load: parseYaml } = createRequire(sdk('package.json'))('js-yaml');
+const { default: FsLocal } = await import('@deepseek-ai/dsh-fs-local');
+const { default: WorkspaceRegistry } = await import('@deepseek-ai/dsh-workspace');
+const { default: WorkingDirectory } = await import('@deepseek-ai/dsh-working-directory');
+const { default: SessionQuery } = await import('@deepseek-ai/dsh-session-query-sqlite');
+const { default: AgentPresets } = await import('@deepseek-ai/dsh-agent-preset-registry');
+const { Storage } = await import('@deepseek-ai/dsh-storage');
+const JsonStorage = await import('@deepseek-ai/dsh-storage-json');
+const StorageDomain = await import('@deepseek-ai/dsh-storage-domain');
+const { load: parseYaml } = createRequire(import.meta.resolve('@deepseek-ai/cordis-plugin-loader'))('js-yaml');
 const roots = new Set(), contexts = new Set();
 const previousFetch = globalThis.fetch;
 let networkAttempts = 0;
@@ -103,41 +100,20 @@ class NativeSelectionOfflineAdapter extends OfflineAdapter {
     return { ...await super.resolveModel(provider, model), reasoning: { efforts: [{ id: 'high', name: 'High' }, { id: 'max', name: 'Max' }] } };
   }
 }
-class RestrictedOfflineAdapter extends OfflineAdapter {
-  prepares = [];
-  snapshot = undefined;
-  beforeDispatch = null;
-  restricted = Object.freeze({ version: 1,
-    preparationEffects: () => ({ filesystem: false, credentials: false, network: false, cache: true }),
-    peek: () => this.snapshot,
-    prepare: async (provider, model, signal) => { signal.throwIfAborted(); this.prepares.push({ provider, model }); this.publish(provider, model); },
-  });
-  publish(provider = 'synthetic', model = 'first-explicit-model', generation = 1) {
-    this.snapshot = Object.freeze({ version: 1, identity: Object.freeze({}),
-      versions: Object.freeze({ metadata: generation, configuration: generation, connection: generation, authenticationIdentity: generation }),
-      model: Object.freeze({ provider, id: model, name: 'Synthetic restricted model', context: Object.freeze({ contextWindow: 8000 }) }), defaults: Object.freeze({}),
-      stream: (request, verify) => this.dispatchRestricted(request, verify),
-    });
-  }
-  async *dispatchRestricted(request, verify) {
-    if (this.beforeDispatch) await this.beforeDispatch();
-    verify();
-    yield* super.stream(request);
-  }
-}
+
 async function fixture(script = [], Adapter = OfflineAdapter) {
   const root = await mkdtemp(join(tmpdir(), 'wechat-task-sdk-'));
   roots.add(root);
   const workspace = join(root, 'workspace'), extra = join(root, 'extra'), forbidden = join(root, 'forbidden');
   for (const path of [workspace, extra, forbidden, join(root, 'node_modules', '@deepseek-ai')]) await mkdir(path, { recursive: true, mode: 0o700 });
-  for (const [name, path] of [['dsh-agent-preset', 'packages/preset/agent-preset'], ['dsh-agent-tool-presentation', 'packages/core/agent-tool-presentation'], ['dsh-tool-present', 'packages/deliverables/tool-present']]) {
-    await symlink(join(checkout, path), join(root, 'node_modules', '@deepseek-ai', name), 'dir');
+  for (const name of ['dsh-agent-preset', 'dsh-agent-tool-presentation', 'dsh-tool-present']) {
+    await symlink(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/' + name + '/package.json')), join(root, 'node_modules', '@deepseek-ai', name), 'dir');
   }
   await symlink(fileURLToPath(new URL('../', import.meta.url)), join(root, 'node_modules', 'dsh-wechat-ro'), 'dir');
   const ctx = new Context(); contexts.add(ctx); ctx.baseUrl = pathToFileURL(`${root}/`).href;
   await ctx.plugin(Loader); ctx.loader.builtins.group = Group;
   await ctx.plugin(LlmRuntime); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections); await ctx.plugin(SystemPrompt);
-  await ctx.plugin(ToolRuntime); await ctx.plugin(AgentRegistry); await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root });
+  await ctx.plugin(ToolRuntime); await ctx.plugin(NativeToolExecutorPlugin); await ctx.plugin(AgentRegistry); await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root });
   await ctx.plugin(JsonlPersistence, { root: join(root, 'sessions'), compression: 'none' });
   await ctx.plugin(Storage); await ctx.plugin(JsonStorage, { root: join(root, 'domains') }); await ctx.plugin(StorageDomain, { backend: 'json' });
   await ctx.plugin(MeteredFileSystem, { cwd: root }); await ctx.plugin(WorkingDirectory, { defaultDirectory: root });
@@ -162,6 +138,10 @@ async function fixture(script = [], Adapter = OfflineAdapter) {
   }
   return { ctx, root, workspace, extra, forbidden, access, adapter, context, manualTask, grant, bridges, runtimes, dispose };
 }
+async function executeNativeTool(ctx, { agent, callId, name, arguments: args, signal }) {
+  const batch = await ctx.tools.execute({ agent, signal, calls: [{ type: 'tool-call', id: callId, name, arguments: JSON.stringify(args) }] });
+  return batch.results[0].result;
+}
 const rejects = (operation, code) => assert.rejects(Promise.resolve().then(operation), error => { assert.ok(error instanceof TaskAccessError); assert.equal(error.code, code); assert.equal(Object.hasOwn(error, 'cause'), false); return true; });
 
 test('native task starts on the real configured default without manually assigning Agent options', async () => {
@@ -174,6 +154,8 @@ test('native task starts on the real configured default without manually assigni
     assert.equal(f.access.canShare(task.id), false);
     task.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Synthetic native default-route check.' }] }));
     await task.agent.whenIdle(); await f.ctx.sessions.flush(task.agent.session);
+    const terminal = task.agent.session.snapshotEvents().filter(event => event.type === 'turn/end').at(-1)?.data.reason;
+    assert.equal(terminal?.kind, 'completed', JSON.stringify(terminal));
     assert.equal(f.adapter.requests.length, 1);
     assert.equal(task.agent.session.requestHeader().config.model, 'configured-task-model');
     assert.ok(task.agent.session.snapshotEvents().some(event => event.type === 'assistant/message'
@@ -235,7 +217,8 @@ test('native target model changes apply to later WeChat replies after the inheri
     assert.deepEqual(f.adapter.requests.map(request => request.model), [initial.model, next.model]);
     assert.deepEqual(f.adapter.requests.map(request => request.provider), [initial.provider, next.provider]);
     assert.equal(f.adapter.requests[1].reasoningEffort, undefined);
-    assert.deepEqual(f.ctx.sessionProjections.stateOf(task.agent.session, 'modelSelection').pending, next);
+    assert.deepEqual(task.agent.model.current(), next);
+    assert.equal(f.ctx.sessionProjections.stateOf(task.agent.session, 'modelSelection').pending, null);
     const effortOnly = { ...next, reasoningEffort: 'high' };
     task.agent.session.append('model/selection', effortOnly); selection.current = effortOnly;
     assert.equal(await task.bridge.reply(task.id, 'Third phone input.', { messageId: 'native-effort-choice-message' }), 'Same model, new effort.');
@@ -263,7 +246,7 @@ test('fresh task captures the latest origin model after background allocation an
       f.context.append('model/selection', next);
     });
     assert.equal(allocated, 1); assert.equal(f.ctx.fs.reads.length, 0);
-    assert.deepEqual(f.ctx.sessionProjections.stateOf(task.agent.session, 'modelSelection').pending, next);
+    assert.deepEqual(task.agent.model.current(), next);
     f.access.setSharing(task.id, { allowWechat: true, confirmation: 'share-whole-task-context' });
     assert.equal(await task.bridge.reply(task.id, 'Synthetic new input.', { messageId: 'prepared-model-choice-message' }), 'Prepared-time native choice reached.');
     assert.equal(f.adapter.requests[0].model, next.model);
@@ -365,7 +348,7 @@ test('controlled native pending selection is restored ahead of deployment defaul
   } finally { await f.dispose(); }
 });
 
-test('a persisted native selection without its projection fails closed instead of guessing a model', async () => {
+test('official host restores persisted model selection without a manually registered projection', async () => {
   const f = await fixture();
   try {
     await f.ctx.plugin(AgentDefaultModelConfig, { provider: 'synthetic', model: 'default-choice' });
@@ -373,7 +356,8 @@ test('a persisted native selection without its projection fails closed instead o
     task.agent.session.append('model/selection', { provider: 'synthetic', model: 'pending-choice' });
     await f.ctx.sessions.flush(task.agent.session); await task.bridge.dispose();
     const restored = createTaskSessionBridge(f.ctx, { data: f.access }); f.bridges.push(restored);
-    await assert.rejects(restored.ensure(task.id), error => error.code === 'model-unavailable');
+    await restored.ensure(task.id);
+    assert.deepEqual(f.ctx.agents.get(SessionId(task.id)).model.current(), { provider: 'synthetic', model: 'pending-choice' });
     assert.equal(f.adapter.requests.length, 0); assert.equal(f.access.canShare(task.id), false);
   } finally { await f.dispose(); }
 });
@@ -397,7 +381,7 @@ test('task data constructor/status stay no-I/O; invalid source paths fail before
     assert.equal(f.access.canShare(id), false);
     assert.equal(f.ctx.storageDomain.get(TASK_CONTEXT_SPEC.name), undefined);
     assert.equal(f.ctx.fs.resolved.length, before);
-    for (const root of [f.forbidden, f.root, desktopPath(desktopHome(), 'Documents/xwechat_files'), join(f.workspace, '.ssh')]) {
+    for (const root of [f.forbidden, f.root, '/home/keer/Documents/xwechat_files', join(f.workspace, '.ssh')]) {
       await rejects(() => f.access.grantWorkspace(id, { root, title: 'Denied', allowWechat: true, confirmation: 'read-and-write-task-workspace' }), 'forbidden-root');
     }
     assert.equal(f.ctx.fs.resolved.length, before);
@@ -984,7 +968,7 @@ test('metadata-only status exposes capability aliases, not unmarked Owner source
     f.access.grantSession(id, { sessionId: 'synthetic-private-source', title: 'SYNTHETIC_PRIVATE_SOURCE_NAME', allowWechat: false, confirmation: 'read-task-session' });
     const before = { files: f.ctx.fs.reads.length, sessions: f.ctx.sessionQuery.exactReads.length };
     const started = Math.floor(Date.now() / 1000);
-    const result = await f.ctx.tools.execute({ agent, callId: ToolCallId('synthetic-status-private-scope'), name: 'wechat_task_sources', arguments: { action: 'status' }, signal: new AbortController().signal });
+    const result = await executeNativeTool(f.ctx, { agent, callId: ToolCallId('synthetic-status-private-scope'), name: 'wechat_task_sources', arguments: { action: 'status' }, signal: new AbortController().signal });
     assert.equal(result.isError, false);
     const clock = JSON.parse(result.content.find(block => block.type === 'text').text).clock;
     assert.ok(clock.nowTs >= started && clock.nowTs <= Math.floor(Date.now() / 1000));
@@ -1122,7 +1106,7 @@ test('native archive budget errors remain resource errors and allow a scoped ret
     const { id, agent } = await nativeTask(f), archive = await archiveQueryBudgetFixture(f);
     await f.access.grantSnapshot(id, archive.grant);
     f.access.setSharing(id, { allowWechat: true, confirmation: 'share-whole-task-context' });
-    const execute = (callId, query) => f.ctx.tools.execute({ agent, callId: ToolCallId(callId), name: 'wechat_task_sources',
+    const execute = (callId, query) => executeNativeTool(f.ctx, { agent, callId: ToolCallId(callId), name: 'wechat_task_sources',
       arguments: { action: 'archive', query }, signal: new AbortController().signal });
     const failed = await execute('synthetic-budget-native', { action: 'search', query: 'SYNTHETIC_SCOPED_ARCHIVE_MESSAGE' });
     assert.equal(failed.isError, true);
@@ -1168,37 +1152,7 @@ test('archive queries preserve cold workspace sharing on failure and mark only s
   } finally { await restored.dispose(); await f.dispose(); }
 });
 
-test('archive queries preserve an approved new-input exception after old unknown zero-request text until data is returned', async () => {
-  const f = await fixture([], RestrictedOfflineAdapter);
-  try {
-    const task = await nativeTask(f), archive = await archiveQueryBudgetFixture(f);
-    await task.bridge.ensure(task.id);
-    await writeFile(join(f.workspace, 'consumed-archive-history.md'), 'SYNTHETIC_OLD_WORKSPACE_HISTORY');
-    await f.access.file(task.id, { action: 'read', path: 'consumed-archive-history.md' });
-    await prepareFirstTask(f, task);
-    const permit = await nativeFirstPermit(f, task);
-    const unknown = await f.access.finishFirstText(permit, { outcome: 'unknown', requestAccepted: 0, modelUnknown: false });
-    assert.equal(unknown.receipt.modelRequestsReserved, 0); assert.equal(unknown.receipt.auditOutcome, 'committed');
-    await f.access.grantSnapshot(task.id, archive.grant);
-    f.access.setSharing(task.id, { allowWechat: true, confirmation: 'share-whole-task-context' });
-    await f.access.allowNewFirstText(task.id, { priorRunId: permit.runId, priorConsentId: permit.consentId, confirmation: 'allow-new-first-text-after-unknown' });
-    assert.equal(f.access.getFirstTextState(task.id).newInputAllowed, true);
-    const table = f.ctx.storageDomain.get(TASK_CONTEXT_SPEC.name).table('tasks'), before = structuredClone(table.get(task.id));
-    const signal = f.access.contextSignal(task.id);
-    await rejects(() => f.access.query(task.id, { action: 'archive', query: { action: 'search', query: '高伟' } }, undefined, 'wechat'), 'query-budget-exceeded');
-    assert.deepEqual(table.get(task.id), before);
-    assert.equal(f.access.getFirstTextState(task.id).newInputAllowed, true, 'Failed archive work must not invalidate the separately approved new input');
-    assert.equal(f.access.canShare(task.id), true); assert.equal(signal.aborted, false);
-    const page = await f.access.query(task.id, { action: 'archive', query: { action: 'messages', talker: archive.alpha } }, undefined, 'wechat');
-    assert.equal(page.rows.length, 1);
-    assert.equal(table.get(task.id).consumed.filter(item => item.kind === 'archive').length, 1);
-    assert.equal(f.access.getFirstTextState(task.id).newInputAllowed, false, 'Successful new context legitimately changes the old sealed-input scope');
-    assert.equal(f.access.canShare(task.id), true); assert.equal(signal.aborted, false);
-    const terminal = f.access.getFirstTextState(task.id).receipts.find(row => row.runId === permit.runId && row.operation === 'terminal');
-    assert.equal(terminal.runOutcome, 'unknown'); assert.equal(terminal.modelRequestsReserved, 0);
-    assert.equal(f.adapter.requests.length, 0);
-  } finally { await f.dispose(); }
-});
+
 
 test('fresh whole-task sharing covers retained archive replies after cold restore without changing consumed generations', async () => {
   const f = await fixture(), restored = createTaskAccess(f.ctx, { sourceRoot: f.forbidden });
@@ -1273,7 +1227,7 @@ test('native Task archive wrapper enforces contact/time scope and records consum
     const status = await f.access.query(id, { action: 'status' });
     assert.equal(JSON.stringify(status).includes(alpha), false);
     assert.equal(f.access.getState(id).sessionMayContainData, false);
-    const outcome = await f.ctx.tools.execute({ agent, callId: ToolCallId('synthetic-native-task-archive'), name: 'wechat_task_sources',
+    const outcome = await executeNativeTool(f.ctx, { agent, callId: ToolCallId('synthetic-native-task-archive'), name: 'wechat_task_sources',
       arguments: { action: 'archive', sourceId: 'workspace', limit: 50, offset: 0, query: { action: 'messages', talker: alpha, limit: 2, offset: 0 } }, signal: new AbortController().signal });
     assert.equal(outcome.isError, false);
     const serialized = JSON.stringify(outcome);
@@ -1302,7 +1256,7 @@ test('native task final guard rejects scoped foreign tools and data references f
       parameters: { type: 'object', properties: {}, additionalProperties: false }, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
       execute() { executed++; return 'must not execute'; } });
     try {
-      const result = await f.ctx.tools.execute({ agent: first.agent, callId: ToolCallId('synthetic-foreign-task-call'), name: 'synthetic_foreign_task_tool', arguments: {}, signal: new AbortController().signal });
+      const result = await executeNativeTool(f.ctx, { agent: first.agent, callId: ToolCallId('synthetic-foreign-task-call'), name: 'synthetic_foreign_task_tool', arguments: {}, signal: new AbortController().signal });
       assert.equal(result.isError, true); assert.equal(executed, 0);
     } finally { release(); }
     await writeFile(join(f.workspace, 'cross-task.txt'), 'first task source');
@@ -1318,7 +1272,7 @@ test('native task final guard rejects scoped foreign tools and data references f
   } finally { await f.dispose(); }
 });
 
-test('native model requests exclude late scoped and provider tools without filtering ordinary agents', async () => {
+test('native executor excludes late scoped tools without filtering ordinary agents', async () => {
   const f = await fixture(['Ordinary before.', 'Controlled task.', 'Ordinary after.']);
   let ordinary;
   const releases = [];
@@ -1331,7 +1285,6 @@ test('native model requests exclude late scoped and provider tools without filte
     ordinary = await f.ctx.agents.create({ sessionId: SessionId('synthetic-ordinary-model'), meta: { cwd: f.root }, agentOptions: { provider: 'synthetic', model: 'ordinary-model' } });
     const extras = ['interrupt_agent', 'list_agents', 'send_message', 'spawn_teammate', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update', 'wait_agent'];
     for (const name of extras) releases.push(agent.ctx.get('tools').register(definition(name)));
-    releases.push(agent.ctx.get('systemPrompt').tools(() => ({ schemas: [definition('synthetic_provider_tool')] })));
     releases.push(agent.ctx.get('systemPrompt').context({ name: 'team:identity', order: 600, required: true,
       text: 'You are the Team Lead named "lead". Use list_agents({}) and send_message to contact teammates.' }));
     releases.push(agent.ctx.get('systemPrompt').context({ name: 'synthetic:safety', order: 100, text: 'SYNTHETIC_SAFETY_CONTEXT' }));
@@ -1407,7 +1360,7 @@ test('native action normalization rejects unknown or invalid relevant fields as 
     assert.deepEqual(Object.keys(filled).sort(), Object.keys(schema.properties).sort());
     await rejects(() => f.access.query(id, filled), 'invalid-request');
     const before = { reads: f.ctx.fs.reads.length, writes: f.ctx.fs.writes.length, resolved: f.ctx.fs.resolved.length, sessions: f.ctx.sessionQuery.exactReads.length };
-    const execute = (name, args) => f.ctx.tools.execute({ agent, callId: ToolCallId(`input-contract-${randomUUID()}`), name, arguments: args, signal: new AbortController().signal });
+    const execute = (name, args) => executeNativeTool(f.ctx, { agent, callId: ToolCallId(`input-contract-${randomUUID()}`), name, arguments: args, signal: new AbortController().signal });
     const status = await execute('wechat_task_sources', filled);
     assert.equal(status.isError, false);
     for (const [name, args] of [
@@ -1437,11 +1390,11 @@ test('native environment changes close the task before any forbidden cwd resolut
   try {
     const cwdTask = await nativeTask(f), modeTask = await nativeTask(f);
     const before = f.ctx.fs.resolved.length;
-    cwdTask.agent.session.append('working-directory/change', { cwd: desktopPath(desktopHome(), 'Documents/xwechat_files') });
+    cwdTask.agent.session.append('working-directory/change', { cwd: '/home/keer/Documents/xwechat_files' });
     assert.throws(() => assertTaskSessionHistory(cwdTask.agent.session), error => error.code === 'unsafe-session');
     assert.equal(cwdTask.bridge.isPrepared(cwdTask.id), false);
     assert.equal(f.access.getState(cwdTask.id).sources.length, 0);
-    const result = await f.ctx.tools.execute({ agent: cwdTask.agent, callId: ToolCallId('synthetic-bad-cwd-call'), name: 'wechat_task_files', arguments: { action: 'read', path: 'source.txt' }, signal: new AbortController().signal });
+    const result = await executeNativeTool(f.ctx, { agent: cwdTask.agent, callId: ToolCallId('synthetic-bad-cwd-call'), name: 'wechat_task_files', arguments: { action: 'read', path: 'source.txt' }, signal: new AbortController().signal });
     assert.equal(result.isError, true);
     assert.equal(f.ctx.fs.resolved.length, before);
     setSandboxMode(modeTask.agent.session, 'danger-full-access');
@@ -1481,7 +1434,7 @@ test('native task restore and GUI borrow retain policy without restoring grants 
 test('a global present definition cannot substitute for the task preset native declaration', async () => {
   const f = await fixture();
   try {
-    const nativePresent = await import(sdk('packages/deliverables/tool-present/lib/index.js'));
+    const nativePresent = await import('@deepseek-ai/dsh-tool-present');
     await f.ctx.plugin(nativePresent, { maxFiles: 4 });
     assert.ok(f.ctx.tools.get('present'));
     const rows = parseYaml(await readFile(new URL('../presets/wechat-task.patch.yml', import.meta.url), 'utf8'))[0].insert;
@@ -1518,7 +1471,7 @@ test('revocation during delegated post-execute gates cannot commit old task sour
         if (prepend) { const accepted = await next(); entered.resolve(); await release.promise; return accepted; }
         entered.resolve(); await release.promise; return next();
       }, { prepend });
-      pending = f.ctx.tools.execute({ agent: task.agent, callId: ToolCallId('synthetic-delayed-post'), name: 'wechat_task_files', arguments: { action: 'read', path: 'post-source.txt' }, signal: new AbortController().signal });
+      pending = executeNativeTool(f.ctx, { agent: task.agent, callId: ToolCallId('synthetic-delayed-post'), name: 'wechat_task_files', arguments: { action: 'read', path: 'post-source.txt' }, signal: new AbortController().signal });
       await entered.promise; f.access.revoke(task.id, 'workspace'); release.resolve();
       const result = await pending;
       assert.equal(JSON.stringify(result.content).includes('SYNTHETIC_POST_REVOCATION_SOURCE'), false, `post-execute gate prepend=${prepend} must not emit old content`);
@@ -1730,294 +1683,37 @@ test('Task history validates every canonical tool catalog and cannot wash foreig
   }
 });
 
-async function recordedHistoricalTask(f) {
-  await f.ctx.plugin(AgentDefaultModelConfig, { provider: 'synthetic', model: 'historical-task-model' });
-  const task = await nativeTask(f);
-  await task.bridge.ensure(task.id);
-  await writeFile(join(f.workspace, 'recorded.md'), 'Synthetic workspace history marker.');
-  await f.access.file(task.id, { action: 'read', path: 'recorded.md' }, undefined, 'local');
-  task.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Synthetic frozen history baseline.' }] }));
-  await task.agent.whenIdle(); await f.ctx.sessions.flush(task.agent.session);
-  return task;
-}
-async function nativeHistoricalPermit(f, task) {
-  const reviewed = await f.access.reviewHistoricalContext(task.id);
-  const approved = await f.access.authorizeHistoricalContext(task.id, { reviewId: reviewed.reviewId, confirmation: 'authorize-reviewed-task-history-text' });
-  const historyConsentId = approved.receipt.consentId;
-  await f.access.shareHistoricalContext(task.id, { historyConsentId, confirmation: 'share-reviewed-task-history-context' });
-  return f.access.reserveHistoricalText(task.id, { historyConsentId, confirmation: 'poll-one-text-reply-with-reviewed-history' });
-}
-
-test('real native historical branch uses a recorded request with no source I/O after workspace deletion', async () => {
-  const f = await fixture(['Synthetic baseline accepted.', 'Synthetic sealed historical reply.']);
+test('official native host rejects retired single-text execution without changing its Session or invoking a model', async () => {
+  const f = await fixture();
   try {
-    const task = await recordedHistoricalTask(f);
-    f.access.revokeAll(task.id);
-    await rm(f.workspace, { recursive: true, force: true });
-    const meters = [f.ctx.fs.resolved.length, f.ctx.fs.reads.length, f.ctx.fs.writes.length, f.ctx.sessionQuery.exactReads.length];
-    assert.equal(f.access.getState(task.id).contextBlocked, true);
-    const permit = await nativeHistoricalPermit(f, task);
-    assert.equal(f.access.canShare(task.id), false);
-    const before = f.adapter.requests.length;
-    await assert.rejects(task.bridge.reply(task.id, 'Synthetic legacy reply denied.', { messageId: 'synthetic-legacy-historical' }), error => error.code === 'archive-denied');
-    assert.equal(f.adapter.requests.length, before);
-    const reply = await task.bridge.replyHistorical(task.id, 'Synthetic one historical Owner input.', { messageId: 'synthetic-history-once' }, permit.signal, permit);
-    assert.equal(reply.text, 'Synthetic sealed historical reply.'); assert.deepEqual(reply.deliverables, []);
-    const done = await f.access.finishHistoricalText(permit, { outcome: 'replied', requestAccepted: 1 });
-    assert.equal(done.receipt.modelRequestsReserved, 1); assert.equal(done.receipt.sharingClosed, true);
-    assert.equal(f.adapter.requests.length, before + 1);
-    assert.deepEqual(f.adapter.requests.at(-1).tools ?? [], []);
-    assert.ok(JSON.stringify(f.adapter.requests.at(-1).messages).includes('Synthetic frozen history baseline.'));
-    assert.deepEqual([f.ctx.fs.resolved.length, f.ctx.fs.reads.length, f.ctx.fs.writes.length, f.ctx.sessionQuery.exactReads.length], meters);
-    assert.equal(f.access.getState(task.id).contextBlocked, true); assert.equal(f.access.canShare(task.id), false); assert.equal(f.access.getState(task.id).allowWechat, false);
-    assert.equal(task.agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source?.messageId === 'synthetic-history-once').length, 1);
+    const task = await nativeTask(f);
+    const sequence = task.agent.session.seq;
+    assert.equal(Object.hasOwn(task.agent, 'sealedHistory'), false);
+    assert.equal(Object.hasOwn(task.agent, 'sealedFirstText'), false);
+    assert.throws(() => task.bridge.replyHistorical(task.id, 'Synthetic old text', { messageId: 'retired-history' }, undefined, {}), error => error.code === 'archive-denied');
+    assert.throws(() => task.bridge.replyFirstText(task.id, 'Synthetic old text', { messageId: 'retired-first' }, undefined, {}), error => error.code === 'archive-denied');
+    await assert.rejects(task.bridge.selectFirstTextModel(task.id, { provider: 'synthetic', model: 'old-model' }), error => error.code === 'not-prepared');
+    assert.equal(task.agent.session.seq, sequence);
+    assert.equal(f.adapter.requests.length, 0);
   } finally { await f.dispose(); }
 });
 
-test('real native historical revoke drains its single model attempt and retains unknown outcome without source reads', async () => {
-  const entered = deferred(), release = deferred();
-  const f = await fixture(['Synthetic baseline accepted.', async function* () { entered.resolve(); await release.promise; yield* chunks('Late synthetic output must not escape.'); }]);
-  try {
-    const task = await recordedHistoricalTask(f); f.access.revokeAll(task.id);
-    const permit = await nativeHistoricalPermit(f, task), before = f.adapter.requests.length;
-    const pending = task.bridge.replyHistorical(task.id, 'Synthetic revocable Owner input.', { messageId: 'synthetic-history-cancel' }, permit.signal, permit);
-    pending.catch(() => {}); await Promise.race([entered.promise, pending.then(() => { throw new Error('Historical fixture never entered the adapter'); })]);
-    const revoked = f.access.revokeHistoricalContext(task.id);
-    release.resolve();
-    await assert.rejects(pending, error => error.code === 'aborted'); await revoked;
-    const done = await f.access.finishHistoricalText(permit, { outcome: 'blocked', requestAccepted: 0 });
-    assert.equal(done.receipt.modelRequestsReserved, 1); assert.equal(done.receipt.runOutcome, 'unknown');
-    assert.equal(f.adapter.requests.length, before + 1); assert.equal(f.access.getState(task.id).allowWechat, false);
-    assert.equal(f.access.getHistoricalState(task.id).reason, 'run-unresolved');
-    await assert.rejects(f.access.reviewHistoricalContext(task.id), error => error.code === 'share-forbidden');
-  } finally { release.resolve(); await f.dispose(); }
-});
 
-const sourceMeters = f => [f.ctx.fs.resolved.length, f.ctx.fs.reads.length, f.ctx.fs.writes.length, f.ctx.sessionQuery.exactReads.length];
-async function sourceEmptyFirstTask(f) {
-  const task = await nativeTask(f);
-  await task.bridge.ensure(task.id);
-  await writeFile(join(f.workspace, 'consumed-before-model.md'), 'SYNTHETIC_SOURCE_MUST_NOT_REACH_FIRST_MODEL');
-  await f.access.file(task.id, { action: 'read', path: 'consumed-before-model.md' }, undefined, 'local');
-  f.access.revokeAll(task.id);
-  await rm(f.workspace, { recursive: true, force: true });
-  assert.equal(task.agent.session.requestHeader(), undefined);
-  assert.equal(f.access.getState(task.id).contextBlocked, true);
-  return task;
-}
-const firstChoice = { provider: 'synthetic', model: 'first-explicit-model', confirmation: 'select-first-task-model' };
-async function prepareFirstTask(f, task) {
-  const chosen = await task.bridge.selectFirstTextModel(task.id, firstChoice);
-  assert.equal(f.adapter.prepares.length, 0, 'selection is not provider preparation');
-  assert.equal(chosen.firstTextContext.reason, 'model-unprepared');
-  const prepared = await task.bridge.selectFirstTextModel(task.id, { ...firstChoice,
-    selectionRevision: chosen.firstTextContext.preparation.selectionRevision, preparationConfirmation: 'prepare-first-task-model-metadata' });
-  assert.equal(prepared.firstTextContext.supported, true);
-  assert.deepEqual(f.adapter.prepares, [{ provider: 'synthetic', model: 'first-explicit-model' }]);
-  return prepared;
-}
-async function nativeFirstPermit(f, task) {
-  const reviewed = await f.access.reviewFirstTextContext(task.id);
-  const approved = await f.access.authorizeFirstTextContext(task.id, { reviewId: reviewed.reviewId, confirmation: 'authorize-reviewed-first-task-text' });
-  const firstTextConsentId = approved.receipt.consentId;
-  await f.access.shareFirstTextContext(task.id, { firstTextConsentId, confirmation: 'share-reviewed-first-task-text' });
-  return f.access.reserveFirstText(task.id, { firstTextConsentId, confirmation: 'poll-one-text-reply-with-first-task-text' });
-}
-function firstOwner(f, task, { failSend = false, failStatusAfterSend = false, failCompletionCommit = false } = {}) {
-  const meter = { updates: 0, sends: 0, outputFlushed: false, statusFailures: 0, completionFailures: 0, leaseHeldAtSend: false };
-  const flush = f.ctx.sessions.flush.bind(f.ctx.sessions);
-  f.ctx.sessions.flush = async session => {
-    const result = await flush(session);
-    if (session === task.agent.session && session.snapshotEvents().some(event => event.type === 'turn/end' && event.data.reason.kind === 'completed')) meter.outputFlushed = result === true;
-    return result;
-  };
-  const botId = 'synthetic-first-bot-' + randomUUID(), userId = 'synthetic-first-owner';
-  let saved = { version: 3, sessionId: task.id, revision: 1,
-    credentials: { botId, userId, botToken: 'SYNTHETIC_NOT_A_CREDENTIAL', baseUrl: 'https://ilinkai.weixin.qq.com' },
-    cursor: '', seenMessageIds: [], pending: null, queuedBatch: null };
-  const store = { async read() { return structuredClone(saved); }, async commit(expected, next) {
-    assert.equal(expected, saved.revision);
-    if (failCompletionCommit && meter.sends > 0 && saved.pending?.phase === 'sending' && next.pending === null && meter.completionFailures === 0) {
-      meter.completionFailures++; throw new Error('Synthetic post-accept completion commit failure');
-    }
-    saved = structuredClone(next);
-  } };
-  const unexpected = () => { throw new Error('Unexpected login, media or replacement executor'); };
-  const api = { requestQrCode: unexpected, getQrStatus: unexpected, async getUpdates() {
-    meter.updates++;
-    return { cursor: 'synthetic-first-cursor', ignored: 0, messages: [{ messageId: 'synthetic-first-owner-message', fromUserId: userId,
-      toUserId: botId, contextToken: 'synthetic-first-context', text: 'Synthetic first Owner text.' }] };
-  }, async sendText(_credentials, request) {
-    meter.sends++;
-    assert.equal(meter.outputFlushed, true, 'native completed output must be persisted before transport');
-    meter.leaseHeldAtSend = task.agent.sealedFirstText.probe().reason === 'leased';
-    assert.equal(meter.leaseHeldAtSend, true, 'native guard must survive the bridge return until Owner terminal settlement');
-    assert.equal(request.text, 'Synthetic first plain reply.');
-    if (failSend) throw new Error('Synthetic unknown send outcome');
-    return { accepted: true };
-  } };
-  const runtime = createConversationRuntime(f.ctx, {}, {
-    createArchiveAccess: () => ({ async dispose() {} }), createSessionBridge: () => ({ isPrepared: () => false, async dispose() {} }),
-    createTaskAccess: () => f.access, createTaskSessionBridge: () => task.bridge, credentials: {}, fetcher: globalThis.fetch,
-    createStateStore: () => store, createApi: () => api, createMediaApi: () => ({ sendMedia: unexpected }),
-    createChannel(options) {
-      const channel = createWeixinChannel(options);
-      if (!failStatusAfterSend) return channel;
-      return Object.freeze({ ...channel, async getStatus(signal) {
-        if (meter.sends > 0 && meter.statusFailures === 0) { meter.statusFailures++; throw new Error('Synthetic post-accept status failure'); }
-        return channel.getStatus(signal);
-      } });
-    },
-  });
-  f.runtimes.push(runtime);
-  const action = (name, fields = {}, signal) => runtime.action({ kind: 'task', sessionId: task.id, action: name, ...fields }, signal);
-  async function approve() {
-    assert.equal((await action('resumeConversation', { confirmation: 'resume-task-conversation' })).ok, true);
-    const chosen = await action('selectFirstTextModel', firstChoice);
-    assert.equal(chosen.ok, true); assert.equal(f.adapter.prepares.length, 0);
-    const prepared = await action('selectFirstTextModel', { ...firstChoice, selectionRevision: chosen.result.firstTextContext.preparation.selectionRevision,
-      preparationConfirmation: 'prepare-first-task-model-metadata' });
-    assert.equal(prepared.ok, true); assert.equal(prepared.result.firstTextContext.supported, true);
-    const reviewed = await action('reviewFirstTextContext'); assert.equal(reviewed.ok, true);
-    const approved = await action('authorizeFirstTextContext', { reviewId: reviewed.result.reviewId, confirmation: 'authorize-reviewed-first-task-text' });
-    assert.equal(approved.ok, true); const firstTextConsentId = approved.result.receipt.consentId;
-    assert.equal((await action('setSharing', { allowWechat: true, firstTextConsentId, confirmation: 'share-reviewed-first-task-text' })).ok, true);
-    return firstTextConsentId;
-  }
-  const poll = (firstTextConsentId, signal) => action('pollTextOnce', { firstTextConsentId, allowSharedContext: true, confirmation: 'poll-one-text-reply-with-first-task-text' }, signal);
-  return { runtime, meter, action, approve, poll, state: () => structuredClone(saved) };
-}
-
-test('real native first text ignores consumed revoked sources and retains its guard through Owner settlement', async () => {
-  const f = await fixture(['Synthetic first plain reply.'], RestrictedOfflineAdapter);
+test('foreign prompt-tool schemas stop only the affected Task before model dispatch', async () => {
+  const f = await fixture(['Synthetic ordinary reply.']);
+  let ordinary, release;
   try {
-    const task = await sourceEmptyFirstTask(f), before = sourceMeters(f);
-    let ordinaryHandlers = 0;
-    for (const event of ['agent/pre-step', 'agent/request', 'agent/turn-stopping']) task.agent.ctx.on(event, () => { ordinaryHandlers++; throw new Error('Ordinary source-capable handler must be skipped'); });
-    await prepareFirstTask(f, task);
-    const permit = await nativeFirstPermit(f, task);
-    const reply = await task.bridge.replyFirstText(task.id, 'Synthetic first Owner text.', { messageId: 'synthetic-native-first' }, permit.signal, permit).catch(error => {
-      assert.fail(JSON.stringify({ code: error.code, eventTypes: task.agent.session.snapshotEvents().map(event => event.type),
-        endings: task.agent.session.snapshotEvents().filter(event => event.type === 'turn/end').map(event => event.data.reason), requests: f.adapter.requests.length }));
-    });
-    assert.equal(reply.text, 'Synthetic first plain reply.'); assert.deepEqual(reply.deliverables, []);
-    assert.equal(task.agent.sealedFirstText.probe().reason, 'leased');
-    assert.equal(ordinaryHandlers, 0); assert.deepEqual(sourceMeters(f), before);
-    const request = f.adapter.requests.at(-1);
-    assert.equal(f.adapter.requests.length, 1); assert.equal(request.provider, 'synthetic'); assert.equal(request.model, 'first-explicit-model');
-    assert.deepEqual(request.messages.map(message => message.role), ['system', 'user']); assert.deepEqual(request.tools ?? [], []);
-    assert.equal(request.messages[1].content[0].text, 'Synthetic first Owner text.');
-    assert.equal(JSON.stringify(request).includes('SYNTHETIC_SOURCE_MUST_NOT_REACH_FIRST_MODEL'), false);
-    const done = await f.access.finishFirstText(permit, { outcome: 'replied', requestAccepted: 1 });
-    assert.equal(done.receipt.purpose, 'first-text-once'); assert.equal(done.receipt.modelRequestsReserved, 1); assert.equal(done.receipt.auditOutcome, 'committed');
-    assert.equal(task.agent.sealedFirstText.probe().reason, 'not-empty');
-    assert.equal(task.agent.sealedHistory.probe().supported, true);
-    assert.equal(f.access.canShare(task.id), false); assert.equal(f.access.getState(task.id).allowWechat, false);
-  } finally { await f.dispose(); }
-});
-
-test('real first-text Controller to Channel to Native persists output and closes one guarded text run', async () => {
-  const f = await fixture(['Synthetic first plain reply.'], RestrictedOfflineAdapter);
-  try {
-    const task = await sourceEmptyFirstTask(f), before = sourceMeters(f), owner = firstOwner(f, task);
-    const consentId = await owner.approve(), result = await owner.poll(consentId);
-    assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.result.replied, 1);
-    assert.equal(result.result.receipt.requestAccepted, 1); assert.equal(result.result.receipt.modelRequestsReserved, 1);
-    assert.equal(result.result.receipt.purpose, 'first-text-once'); assert.equal(result.result.receipt.auditOutcome, 'committed');
-    assert.equal(owner.meter.updates, 1); assert.equal(owner.meter.sends, 1); assert.equal(owner.meter.leaseHeldAtSend, true);
-    assert.equal(f.adapter.requests.length, 1); assert.deepEqual(sourceMeters(f), before);
-    assert.equal(task.agent.sealedFirstText.probe().reason, 'not-empty');
-    assert.equal(result.state.channel.messagingEnabled, false); assert.equal(result.state.channel.automaticPolling, false);
-    assert.equal(result.state.channel.messagingVerified, false); assert.equal(result.state.task.allowWechat, false);
-    const again = await owner.poll(consentId); assert.equal(again.ok, false);
-    assert.equal(owner.meter.updates, 1); assert.equal(owner.meter.sends, 1); assert.equal(f.adapter.requests.length, 1);
-  } finally { await f.dispose(); }
-});
-
-test('first-text model generation change before reservation spends the matching Consent without polling', async () => {
-  const f = await fixture(['Synthetic first plain reply.'], RestrictedOfflineAdapter);
-  try {
-    const task = await sourceEmptyFirstTask(f), before = sourceMeters(f), owner = firstOwner(f, task), consentId = await owner.approve();
-    f.adapter.publish('synthetic', 'first-explicit-model', 2);
-    const result = await owner.poll(consentId);
-    assert.equal(result.ok, false); assert.equal(result.error.code, 'SHARED_CONTEXT_DENIED');
-    assert.equal(owner.meter.updates, 0); assert.equal(owner.meter.sends, 0); assert.equal(f.adapter.requests.length, 0);
-    const state = f.access.getFirstTextState(task.id), terminal = state.receipts.find(receipt => receipt.operation === 'terminal');
-    assert.equal(state.consentId, null); assert.equal(state.sharingConfirmed, false); assert.equal(state.executable, false);
-    assert.equal(terminal.consentId, consentId); assert.equal(terminal.runOutcome, 'blocked'); assert.equal(terminal.modelRequestsReserved, 0);
-    assert.equal(terminal.requestAccepted, 0); assert.equal(terminal.auditOutcome, 'committed'); assert.deepEqual(sourceMeters(f), before);
-  } finally { await f.dispose(); }
-});
-
-for (const failure of ['send-unknown', 'post-accept-status', 'post-accept-commit']) test('first-text guarded terminal preserves ' + failure + ' without a retry', async () => {
-  const f = await fixture(['Synthetic first plain reply.'], RestrictedOfflineAdapter);
-  try {
-    const task = await sourceEmptyFirstTask(f), before = sourceMeters(f);
-    const owner = firstOwner(f, task, { failSend: failure === 'send-unknown', failStatusAfterSend: failure === 'post-accept-status',
-      failCompletionCommit: failure === 'post-accept-commit' });
-    const consentId = await owner.approve(), result = await owner.poll(consentId);
-    assert.equal(result.ok, false); assert.equal(owner.meter.updates, 1); assert.equal(owner.meter.sends, 1); assert.equal(f.adapter.requests.length, 1);
-    assert.equal(owner.meter.leaseHeldAtSend, true); assert.equal(task.agent.sealedFirstText.probe().reason, 'not-empty');
-    const state = f.access.getFirstTextState(task.id), terminal = state.receipts.find(receipt => receipt.operation === 'terminal');
-    assert.equal(terminal.modelRequestsReserved, 1); assert.equal(terminal.auditOutcome, 'committed');
-    assert.equal(terminal.requestAccepted, failure === 'send-unknown' ? 0 : 1);
-    assert.equal(terminal.runOutcome, failure === 'post-accept-status' ? 'replied' : 'unknown');
-    if (failure === 'post-accept-commit') {
-      assert.equal(owner.meter.completionFailures, 1); assert.equal(owner.state().pending.phase, 'sending');
-      assert.equal(owner.runtime.getState({ kind: 'task', sessionId: task.id }).channel.requestAccepted, 1);
-    }
-    if (failure !== 'post-accept-status') {
-      assert.equal(state.reason, 'run-unresolved'); assert.equal(f.access.getHistoricalState(task.id).reason, 'run-unresolved');
-      f.access.revokeAll(task.id); assert.equal(f.access.getFirstTextState(task.id).reason, 'run-unresolved');
-    }
-    assert.equal((await owner.poll(consentId)).ok, false); assert.equal(owner.meter.updates, 1); assert.equal(owner.meter.sends, 1);
-    assert.equal(owner.runtime.getState({ kind: 'task', sessionId: task.id }).channel.messagingVerified, false);
-    assert.deepEqual(sourceMeters(f), before);
-  } finally { await f.dispose(); }
-});
-
-test('real first-text cancellation waits for native drain and retains cross-purpose uncertainty', async () => {
-  const entered = deferred(), release = deferred(), abort = new AbortController();
-  const f = await fixture([async function* () { entered.resolve(); await release.promise; yield* chunks('Synthetic first plain reply.'); }], RestrictedOfflineAdapter);
-  let pending;
-  try {
-    const task = await sourceEmptyFirstTask(f), before = sourceMeters(f), owner = firstOwner(f, task), consentId = await owner.approve();
-    let settled = false;
-    pending = owner.poll(consentId, abort.signal); pending.then(() => { settled = true; });
-    await Promise.race([entered.promise, pending.then(result => { assert.fail('First-text model was not entered: ' + JSON.stringify(result)); })]);
-    abort.abort(); await new Promise(done => setImmediate(done));
-    assert.equal(settled, false, 'Owner cancellation cannot outrun native model drain');
-    assert.equal(task.agent.sealedFirstText.probe().reason, 'leased');
-    assert.equal(owner.meter.sends, 0); assert.equal(f.adapter.requests.length, 1);
-    const overlap = await owner.action('reviewFirstTextContext'); assert.equal(overlap.ok, false); assert.equal(overlap.error.code, 'BUSY');
-    release.resolve(); const result = await pending;
-    assert.equal(result.ok, false); assert.equal(result.error.code, 'CANCELLED');
-    const state = f.access.getFirstTextState(task.id), terminal = state.receipts.find(receipt => receipt.operation === 'terminal');
-    assert.equal(terminal.modelRequestsReserved, 1); assert.equal(terminal.requestAccepted, 0); assert.equal(terminal.runOutcome, 'unknown');
-    assert.equal(terminal.auditOutcome, 'committed'); assert.equal(state.reason, 'run-unresolved');
-    assert.equal(f.access.getHistoricalState(task.id).reason, 'run-unresolved');
-    assert.notEqual(task.agent.sealedFirstText.probe().reason, 'leased');
-    assert.equal(owner.meter.updates, 1); assert.equal(owner.meter.sends, 0); assert.deepEqual(sourceMeters(f), before);
-    assert.equal((await owner.poll(consentId)).ok, false); assert.equal(owner.meter.updates, 1);
-  } finally { abort.abort(); release.resolve(); if (pending) await pending; await f.dispose(); }
-});
-
-test('a completed first text remains ineligible after a real persisted Task cold restore', async () => {
-  const f = await fixture(['Synthetic first plain reply.'], RestrictedOfflineAdapter);
-  try {
-    const task = await sourceEmptyFirstTask(f);
-    await prepareFirstTask(f, task); const permit = await nativeFirstPermit(f, task);
-    await task.bridge.replyFirstText(task.id, 'Synthetic first Owner text.', { messageId: 'synthetic-first-before-cold' }, permit.signal, permit);
-    await f.access.finishFirstText(permit, { outcome: 'replied', requestAccepted: 1 });
-    await f.ctx.sessions.flush(task.agent.session); await task.bridge.dispose();
-    const restored = createTaskSessionBridge(f.ctx, { data: f.access }); f.bridges.push(restored);
-    await restored.ensure(task.id);
-    const agent = f.ctx.agents.get(SessionId(task.id));
-    assert.notEqual(agent, task.agent); assert.equal(restored.isPrepared(task.id), true);
-    assert.equal(agent.sealedFirstText.probe().reason, 'not-empty');
-    assert.equal(agent.sealedHistory.probe().supported, true);
-    assert.equal(f.access.getFirstTextState(task.id).supported, false); assert.equal(f.access.getFirstTextState(task.id).reason, 'not-empty');
-    await assert.rejects(Promise.resolve().then(() => f.access.reviewFirstTextContext(task.id)), error => error.code === 'share-forbidden');
-    assert.equal(f.adapter.requests.length, 1); assert.deepEqual(f.access.getState(task.id).sources, []); assert.equal(f.access.canShare(task.id), false);
-  } finally { await f.dispose(); }
+    await f.ctx.plugin(AgentDefaultModelConfig, { provider: 'synthetic', model: 'task-model' });
+    const { agent } = await nativeTask(f);
+    release = agent.ctx.get('systemPrompt').tools(() => ({ schemas: [{ name: 'synthetic_ungranted_tool', description: 'Synthetic conflicting provider', parameters: { type: 'object', properties: {} } }] }));
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Synthetic Task input.' }] }));
+    await agent.whenIdle();
+    assert.equal(f.adapter.requests.length, 0);
+    assert.equal(agent.session.snapshotEvents().filter(event => event.type === 'turn/end').at(-1).data.reason.kind, 'error');
+    ordinary = await f.ctx.agents.create({ sessionId: SessionId('synthetic-ordinary-after-conflict'), meta: { cwd: f.root }, agentOptions: { provider: 'synthetic', model: 'ordinary-model' } });
+    ordinary.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Synthetic ordinary input.' }] }));
+    await ordinary.agent.whenIdle();
+    assert.equal(f.adapter.requests.length, 1);
+    assert.equal(f.adapter.requests[0].model, 'ordinary-model');
+  } finally { release?.(); await ordinary?.dispose(); await f.dispose(); }
 });

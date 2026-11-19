@@ -9,7 +9,8 @@ const assert = { ...strictAssert, equal(actual, expected, message) {
   if (actual?.nodeType || expected?.nodeType) return strictAssert.equal(actual === expected, true, message || 'DOM node identity differs');
   return strictAssert.equal(actual, expected, message);
 } };
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
+import ts from 'typescript'
 import { EventEmitter } from 'node:events'
 import { createRequire, registerHooks } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
@@ -20,9 +21,9 @@ import { createTaskHistoryAuthority, TASK_HISTORY_AUDIT_SPEC, TASK_FIRST_TEXT_AU
 import { randomUUID } from 'node:crypto'
 
 const pluginDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const runtimeRoot = process.env.WECHAT_UI_TEST_RUNTIME || '/REPLACE_WITH_DSH_CHECKOUT'
+const runtimeRoot = realpathSync(process.env.WECHAT_UI_TEST_RUNTIME || dirname(dirname(dirname(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh/package.json'))))))
 const runtimeRequire = createRequire(join(runtimeRoot, 'package.json'))
-const sdkRequire = createRequire(join(runtimeRoot, 'packages/client/ui-renderer/package.json'))
+const sdkRequire = createRequire(import.meta.resolve('@deepseek-ai/dsh-client-ui-renderer/package.json'))
 const pluginRequire = createRequire(join(pluginDir, 'package.json'))
 const source = readFileSync(join(pluginDir, 'lib/client.js'), 'utf8')
 const protocolSource = readFileSync(join(pluginDir, 'lib/conversation-wire.js'), 'utf8')
@@ -75,6 +76,10 @@ const hooks = registerHooks({
     return nextResolve(specifier, context)
   },
   load(url, context, nextLoad) {
+    if (/\.tsx?$/.test(url) && url.startsWith(pathToFileURL(join(runtimeRoot, 'node_modules/@deepseek-ai/')).href)) {
+      const source = readFileSync(fileURLToPath(url), 'utf8')
+      return { format: 'module', shortCircuit: true, source: ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX, useDefineForClassFields: true } }).outputText }
+    }
     if (url === 'offline-archive-ipc:') return { format: 'module', source: 'export const fork = globalThis.__wechatSyntheticArchiveFork', shortCircuit: true }
     if (url.startsWith('offline-css:')) return { format: 'module', source: 'export default Object.freeze({})', shortCircuit: true }
     return nextLoad(url, context)
@@ -82,7 +87,7 @@ const hooks = registerHooks({
 })
 const globals = new Map()
 const install = (key, value) => { globals.set(key, Object.getOwnPropertyDescriptor(globalThis, key)); Object.defineProperty(globalThis, key, { configurable: true, writable: true, value }) }
-const importSdk = relative => import(pathToFileURL(join(runtimeRoot, relative)).href)
+const importSdk = specifier => import(specifier)
 let dom, cleanup, ctx, view, consumer, gateway, right, releaseRoot
 const releases = []
 
@@ -101,23 +106,23 @@ try {
   cleanup = cleanupReact
   const { Context, Service } = await import(pathToFileURL(sdkRequire.resolve('@deepseek-ai/cordis')).href)
   const gatewayModule = await import(pathToFileURL(createRequire(join(runtimeRoot, 'packages/api/gateway/package.json')).resolve('@deepseek-ai/dsh-api-gateway/client')).href)
-  const { SlotRegistry } = await importSdk('packages/client/ui-renderer/lib/types/client/registry.js')
-  const { createSlotRenderer } = await importSdk('packages/client/ui-renderer/lib/types/client/scoped-slots.js')
-  const { observableHook } = await importSdk('packages/client/ui-renderer/lib/types/client/bindings.js')
-  const { LocaleRuntime } = await importSdk('packages/client/locale/lib/types/client/index.js')
-  const { SidebarRightTabRegistry } = await importSdk('packages/client/ui-sidebar-right/lib/types/client/tab-registry.js')
-  const { createSidebarRightController } = await importSdk('packages/client/ui-sidebar-right/lib/types/client/service.js')
-  const { createSidebarRightStore } = await importSdk('packages/client/ui-sidebar-right/lib/types/client/stores.js')
-  const { activeDockPaneId, getPane } = await importSdk('packages/client/ui-dockkit/lib/index.js')
-  const { tabInfoFactory } = await importSdk('packages/client/ui-sidebar-right/lib/types/client/tab-info.js')
-  const { pageAddress } = await importSdk('packages/client/ui-sidebar-right/lib/types/client/contract/seed.js')
-  const { createSnapshotStore } = await importSdk('packages/client/store/lib/types/index.js')
-  const { LayoutController } = await importSdk('packages/client/ui-layout/lib/types/client/service.js')
-  const { createLayoutStore } = await importSdk('packages/client/ui-layout/lib/types/client/stores.js')
-  const { UiSession } = await importSdk('packages/client/ui-session/lib/types/client/index.js')
-  const nativeModelPlugin = await importSdk('packages/client/ui-model-selection/lib/types/client/index.js')
-  const { UiWorkspaceService } = await importSdk('packages/client/ui-workspace/lib/types/client/navigation.js')
-  const { ClientCordisInspectRegistry, provideClientCordisInspect } = await importSdk('packages/extensions/cordis-client-runner/lib/types/client/inspect-registry.js')
+  const { SlotRegistry } = await importSdk('@deepseek-ai/dsh-client-ui-renderer/src/client/registry.ts')
+  const { createSlotRenderer } = await importSdk('@deepseek-ai/dsh-client-ui-renderer/src/client/scoped-slots.tsx')
+  const { observableHook } = await importSdk('@deepseek-ai/dsh-client-ui-renderer/src/client/bindings.tsx')
+  const { LocaleRuntime } = await importSdk('@deepseek-ai/dsh-client-locale/src/client/index.ts')
+  const { SidebarRightTabRegistry } = await importSdk('@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-registry.ts')
+  const { createSidebarRightController } = await importSdk('@deepseek-ai/dsh-client-ui-sidebar-right/src/client/service.ts')
+  const { createSidebarRightStore } = await importSdk('@deepseek-ai/dsh-client-ui-sidebar-right/src/client/stores.ts')
+  const { activeDockPaneId, getPane } = await importSdk('@deepseek-ai/dsh-client-ui-dockkit')
+  const { tabInfoFactory } = await importSdk('@deepseek-ai/dsh-client-ui-sidebar-right/src/client/tab-info.ts')
+  const { pageAddress } = await importSdk('@deepseek-ai/dsh-client-ui-sidebar-right/src/client/contract/seed.ts')
+  const { createSnapshotStore } = await importSdk('@deepseek-ai/dsh-client-store')
+  const { LayoutController } = await importSdk('@deepseek-ai/dsh-client-ui-layout/src/client/service.ts')
+  const { createLayoutStore } = await importSdk('@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts')
+  const { UiSession } = await importSdk('@deepseek-ai/dsh-client-ui-session/src/client/index.ts')
+  const nativeModelPlugin = await importSdk('@deepseek-ai/dsh-client-ui-model-selection/src/client/index.ts')
+  const { UiWorkspaceService } = await importSdk('@deepseek-ai/dsh-client-ui-workspace/src/client/navigation.ts')
+  const { ClientCordisInspectRegistry, provideClientCordisInspect } = await importSdk('@deepseek-ai/dsh-cordis-client-runner/src/client/inspect-registry.ts')
   // Local-download observation belongs only to this isolated JSDOM/VM carrier.
   // No browser URL, filesystem export, or real anchor navigation is performed.
   const downloads = [], downloadUrls = new Map(), revokedDownloadUrls = []
@@ -779,7 +784,7 @@ try {
     const surface = snapshot.bySession[id]
     const activeTabId = surface ? getPane(surface.layout, activeDockPaneId(surface.layout)).activeTabId : undefined
     const tab = surface?.layout.tabs[activeTabId]
-    const entryKey = client.CONVERSATION_TAB_ID
+    const entryKey = tabs.get(tab?.kind)?.id ?? tab?.kind
     const context = React.useMemo(() => {
       if (!tab || tab.kind !== client.CONVERSATION_TAB_KIND) return null
       const occurrence = right.controller.tabDomain.occurrence(id, tab)
@@ -2309,340 +2314,12 @@ try {
   assertTaskCenterUnchanged()
   passTask('one tab is reused across panes/repeated/collapsed opens; restored duplicate and retired owned tabs close without changing foreign tabs or offscreen Sessions')
 
-  const HISTORY_TASK = 'wechat-task-44444444-4444-4444-8444-444444444444'
-  await act(async () => {
-    addNativeSession(HISTORY_TASK); taskTitles.set(HISTORY_TASK, 'Synthetic historical task'); knownTaskIds.add(HISTORY_TASK)
-    const record = taskRecord(HISTORY_TASK); record.prepared = true; record.historyKnown = true; record.workspace = { ...taskWorkspace }
-    record.consumed.set('workspace:old', { sourceId: 'workspace', kind: 'directory', generation: 'synthetic-old-generation' })
-    record.channel = { ...record.channel, enabled: true, phase: 'paired', hasStoredLogin: true }; publishList()
-  })
-  await taskSelect(HISTORY_TASK)
-  const historyPanel = () => taskConnection()?.querySelector('[data-task-history]')
-  const openHistory = async () => { await showSettings(taskAside(), 'connection'); const panel = historyPanel(); assert.ok(panel); await act(async () => { panel.open = true; fireEvent(panel, new dom.window.Event('toggle')) }); return historyPanel() }
-  assert.equal(historyPanel().open, false)
+  await taskSelect(TASK1)
+  assert.equal(taskConnection().querySelector('[data-task-history]'), null, 'Retired sealed execution controls are absent on the official Host')
   assert.equal(taskActions('reviewHistoricalContext').length, 0)
-  let hp = await openHistory()
-  for (const key of ['historyApprovalConsent', 'historySharingConsent', 'historyRunConsent']) assert.equal(within(hp).getByRole('checkbox', { name: te[key], exact: true }).checked, false)
-  assert.equal(taskState(HISTORY_TASK).task.contextBlocked, true); assert.equal(taskState(HISTORY_TASK).task.shareable, false)
-  await taskClick('historyReview', hp)
-  assert.equal(within(hp).getByRole('button', { name: te.historyAuthorize, exact: true }).disabled, true)
-  await taskCheck('historyApprovalConsent', hp); await taskClick('historyAuthorize', hp)
-  assert.equal(taskRecord(HISTORY_TASK).allowWechat, false)
-  assert.equal(within(hp).getByRole('checkbox', { name: te.historySharingConsent, exact: true }).checked, false)
-  await taskCheck('historySharingConsent', hp); await taskClick('historyShare', hp)
-  assert.equal(taskRecord(HISTORY_TASK).allowWechat, true); assert.equal(taskState(HISTORY_TASK).task.shareable, false)
-  assert.equal(dom.window.document.querySelector('[data-task-sharing-settings] [role="status"]').textContent, te.sharingDenied)
-  assert.equal(within(taskConnection()).getByRole('button', { name: en.textOnce, exact: true }).disabled, true)
-  assert.equal(within(hp).getByRole('checkbox', { name: te.historyRunConsent, exact: true }).checked, false)
-  await taskCheck('historyRunConsent', hp); await taskClick('historyRun', hp)
-  assert.equal(taskRecord(HISTORY_TASK).allowWechat, false)
-  assert.ok(hp.textContent.includes(te.historyAccepted)); assert.equal(within(hp).getByRole('button', { name: te.historyRun, exact: true }).disabled, true)
-  const historyPolls = taskActions('pollTextOnce').filter(call => call.request.historyConsentId)
-  assert.equal(historyPolls.length, 1); assert.equal(historyPolls[0].request.sessionId, HISTORY_TASK)
-  assert.equal(historyPolls[0].request.confirmation, 'poll-one-text-reply-with-reviewed-history')
-  assertTaskCenterUnchanged(); passTask('historical review, approval, share and one-text call are separate false-default confirmations; strict old polling stays blocked and the server closes the consumed share')
-
-  await taskClick('historyReview', hp); await taskCheck('historyApprovalConsent', hp)
-  nextTaskMutation = { sessionId: HISTORY_TASK, action: 'authorizeHistoricalContext', mode: 'committed-response-lost' }
-  await taskClick('historyAuthorize', hp)
-  hp = await openHistory()
-  assert.ok(hp.textContent.includes(te.historyAuditUnknown)); assert.equal(within(hp).getByRole('button', { name: te.historyReview, exact: true }).disabled, true)
-  await taskClick('refresh', taskConnection()); hp = await openHistory()
-  assert.ok(hp.textContent.includes(te.historyAuditUnknown), 'GET must not settle a lost history mutation')
-  await taskClick('historyCheckReceipts', hp)
-  assert.equal(hp.textContent.includes(te.historyAuditUnknown), false)
-  assert.equal(within(hp).getByRole('checkbox', { name: te.historySharingConsent, exact: true }).checked, false)
-  assertTaskCenterUnchanged(); passTask('lost historical approval stays unknown across GET and panel reopen; only matching explicit receipts settle its permission and audit axes')
-
-  await taskCheck('historySharingConsent', hp); await taskClick('historyShare', hp)
-  await taskCheck('historyRunConsent', hp)
-  nextHistoryPoll = { mode: 'committed-response-lost', outcome: 'unknown' }
-  await taskClick('historyRun', hp); hp = await openHistory()
-  assert.ok(hp.textContent.includes(te.historyRunUnknown)); const beforeUnknownRetry = taskActions('pollTextOnce').length
-  await taskClick('revokeAll', taskAside()); hp = await openHistory()
-  assert.ok(hp.textContent.includes(te.historyRunUnknown), 'revokeSource(*) must not erase model/send uncertainty')
-  await taskClick('historyRevoke', hp)
-  assert.ok(hp.textContent.includes(te.historyRunUnknown), 'permission revocation is not a known run outcome')
-  await taskClick('historyCheckReceipts', hp)
-  assert.ok(hp.textContent.includes(te.historyRunUnknown)); assert.equal(hp.textContent.includes(te.historyAuditUnknown), false)
-  assert.equal(within(hp).getByRole('button', { name: te.historyRun, exact: true }).disabled, true)
-  assert.equal(taskActions('pollTextOnce').length, beforeUnknownRetry)
-  await taskSelect(TASK1); await taskSelect(HISTORY_TASK); hp = await openHistory()
-  assert.ok(hp.textContent.includes(te.historyRunUnknown))
-  for (const key of ['historyApprovalConsent', 'historySharingConsent', 'historyRunConsent']) assert.equal(within(hp).getByRole('checkbox', { name: te[key], exact: true }).checked, false)
-  assertTaskCenterUnchanged(); passTask('historical run/audit uncertainty survives source revoke, historical revoke, GET and Task switches; receipt checks settle only known audit facts and never retry an unknown run')
-  const unresolvedHistoryBeforeDiagnostic = canonical(historyFor(HISTORY_TASK).status(HISTORY_TASK))
-  const unresolvedAuditBeforeDiagnostic = canonical(historyAuditRows.get(HISTORY_TASK))
-  const unresolvedDiagnosticRequests = taskActions('diagnoseUpdatesOnce').length
-  dp = await openDiagnostic(); assert.equal(within(dp).getByRole('checkbox', { name: te.updatesDiagnosticConsent, exact: true }).checked, false)
-  await taskCheck('updatesDiagnosticConsent', dp); await taskClick('updatesDiagnosticAction', dp)
-  assert.equal(taskActions('diagnoseUpdatesOnce').length, unresolvedDiagnosticRequests + 1)
-  assert.ok(diagnosticResult().textContent.includes(te.updatesDiagnosticValid))
-  assert.deepEqual(canonical(historyFor(HISTORY_TASK).status(HISTORY_TASK)), unresolvedHistoryBeforeDiagnostic)
-  assert.deepEqual(canonical(historyAuditRows.get(HISTORY_TASK)), unresolvedAuditBeforeDiagnostic)
-  assert.equal(taskRecord(HISTORY_TASK).allowWechat, false)
-  hp = await openHistory(); assert.ok(hp.textContent.includes(te.historyRunUnknown)); assertTaskCenterUnchanged()
-  passTask('updates diagnostic: an unresolved historical run can be diagnosed independently without changing the old terminal, audit, sharing, permission or unknown-run warning')
-  assert.equal(taskConnection().textContent.includes(en.phasePaired), true, 'Known pairing remains visible after reading an unknown historical terminal')
-  assert.equal(taskConnection().textContent.includes(en.phaseUnknown), false, 'Run uncertainty cannot relabel known pairing')
-  assert.equal(taskAside().textContent.includes(en.grantUncertain), false, 'A committed unknown run does not make source grants uncertain')
-  assert.equal(taskAside().querySelector('[data-wechat-connect-main]').textContent.includes(en.autoPriorRunUnknown), true)
-  const beforeLocalUnknownRead = { polls: taskActions('pollTextOnce').length, diagnostics: taskActions('diagnoseUpdatesOnce').length,
-    history: canonical(historyFor(HISTORY_TASK).status(HISTORY_TASK)), audit: canonical(historyAuditRows.get(HISTORY_TASK)) }
-  await act(async () => {
-    taskRecord(HISTORY_TASK).sources.set('synthetic-local-source', { kind: 'directory', sourceId: 'synthetic-local-source',
-      generation: 'synthetic-local-generation', title: 'Synthetic authorized local source', root: taskWorkspace.root, write: false, allowWechat: false })
-  })
-  await taskClick('refresh', taskConnection(), en)
-  await showIndexView(taskDetail(), 'records')
-  const localQueryButton = await revealControl(taskDetail(), 'button', en.runQuery)
-  assert.equal(localQueryButton.disabled, false, 'An already authorized local source remains queryable without replying')
-  const beforeLocalQueries = taskActions('queryFiles').length
-  await act(async () => fireEvent.click(localQueryButton))
-  assert.equal(taskActions('queryFiles').length, beforeLocalQueries + 1)
-  assert.equal(taskActions('pollTextOnce').length, beforeLocalUnknownRead.polls)
-  assert.equal(taskActions('diagnoseUpdatesOnce').length, beforeLocalUnknownRead.diagnostics)
-  assert.deepEqual(canonical(historyAuditRows.get(HISTORY_TASK)), beforeLocalUnknownRead.audit)
-  assert.ok(taskDetail().textContent.includes('synthetic-document.md'))
-  hp = await openHistory(); assert.ok(hp.textContent.includes(te.historyRunUnknown))
-  assert.equal(within(hp).getByRole('button', { name: te.historyRun, exact: true }).disabled, true)
-  passTask('unknown reply outcomes preserve known pairing and grants, allow authorized local reads, and retain the prior run and egress gate')
-  await act(async () => { workspace.openSession(HISTORY_TASK); layout.selectPanel('wechat-ro') })
-  await act(async () => fireEvent.click(view.getByRole('button', { name: en.launcher, exact: true })))
-  const ownHistorySidebar = view.container.querySelector('[data-wechat-conversation][data-session-id="' + HISTORY_TASK + '"]')
-  const ownHistoryMain = ownHistorySidebar.querySelector('[data-wechat-connect-main]')
-  assert.ok(ownHistoryMain.textContent.includes(en.autoPriorRunUnknown))
-  assert.equal(ownHistoryMain.textContent.includes(en.autoUnknown), false, 'An old run on the current Task is not an unknown connection attempt')
-  assert.equal(within(ownHistoryMain).getByRole('button', { name: en.autoConnectPaired, exact: true }).disabled, true)
-  await showSettings(ownHistorySidebar, 'connection')
-  assert.equal(ownHistorySidebar.textContent.includes(en.phasePaired), true)
-  assert.equal(ownHistorySidebar.textContent.includes(en.grantUncertain), false)
-  await showSettings(ownHistorySidebar, 'task')
-  assert.equal(ownHistorySidebar.textContent.includes(en.creationUnknown), false, 'The shared catalog controller must not relabel a prior run as unknown creation')
-  assert.equal(taskActions('pollTextOnce').length, beforeLocalUnknownRead.polls)
-  assert.equal(taskActions('diagnoseUpdatesOnce').length, beforeLocalUnknownRead.diagnostics)
-  assert.deepEqual(canonical(historyAuditRows.get(HISTORY_TASK)), beforeLocalUnknownRead.audit)
-  await act(async () => { workspace.openSession(sessionId); layout.selectPanel('wechat-ro') })
-  await click(en.launcher)
-  assertTaskCenterUnchanged()
-  passTask('the original Task sidebar separates its unknown run from connection and creation outcomes even when catalog and Task controllers are identical')
-  await taskSelect(TASK1)
-
-  const FIRST_TASK = 'wechat-task-66666666-6666-4666-8666-666666666666'
-  await act(async () => {
-    addNativeSession(FIRST_TASK); knownTaskIds.add(FIRST_TASK); taskTitles.set(FIRST_TASK, 'Synthetic first-text task')
-    const record = taskRecord(FIRST_TASK); record.prepared = true; record.historyKnown = true; record.workspace = { ...taskWorkspace }
-    record.consumed.set('workspace:old', { sourceId: 'workspace', kind: 'directory', generation: 'synthetic-old-generation' })
-    record.channel = { ...record.channel, enabled: true, phase: 'paired', hasStoredLogin: true }; publishList()
-  })
-  await taskSelect(FIRST_TASK)
-  let fp = await openHistory()
-  await act(async () => fireEvent.change(within(fp).getByRole('combobox', { name: te.textPurpose, exact: true }), { target: { value: 'first-text-once' } }))
-  await taskClick('firstStatus', fp)
-  for (const key of ['firstApprovalConsent', 'firstSharingConsent', 'firstRunConsent', 'firstModelPreparationConsent']) assert.equal(within(fp).getByRole('checkbox', { name: te[key], exact: true }).checked, false)
-  assert.equal(within(fp).queryByRole('textbox', { name: te.firstProvider, exact: true }), null)
-  assert.equal(within(fp).queryByRole('textbox', { name: te.firstModel, exact: true }), null)
-  const taskNativePicker = () => fp.querySelector('[data-task-native-model]')
-  const originalNativeModels = canonical(nativeSelections.get(sessionId).getSnapshot())
-  const beforeNativeSelection = { polls: taskActions('pollTextOnce').length, preparations: taskActions('selectFirstTextModel').length, sources: canonical(taskState(FIRST_TASK).task.sources) }
-  await act(async () => fireEvent.click(within(taskNativePicker()).getByRole('button', { name: /^Select model, current/ })))
-  await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitem', { name: /^Model/ })))
-  await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitemradio', { name: 'Synthetic alternate model', exact: true })))
-  assert.deepEqual(nativeModelCalls.at(-1), { sessionId: FIRST_TASK, provider: 'mock', model: 'alternative' })
-  assert.equal(ctx.modelDirectories.directoryFor(FIRST_TASK).store.getSnapshot().current.model, 'alternative')
-  assert.deepEqual(canonical(nativeSelections.get(sessionId).getSnapshot()), originalNativeModels, 'Selecting the Task model leaves the origin Session selection projection unchanged')
-  const popupRows = await modelCommand.ui.options({ sessionId: FIRST_TASK })
-  assert.equal(popupRows.find(row => row.label === 'Synthetic alternate model').active, true, 'The native /model popup and sidebar use one directory')
-  await act(async () => fireEvent.click(within(taskNativePicker()).getByRole('button', { name: /^Select model, current/ })))
-  await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitem', { name: /^Model/ })))
-  await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitemradio', { name: 'Synthetic native model', exact: true })))
-  await act(async () => fireEvent.click(within(taskNativePicker()).getByRole('button', { name: /^Select model, current/ })))
-  await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitem', { name: /^Effort/ })))
-  await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitemradio', { name: 'Max', exact: true })))
-  assert.deepEqual(ctx.modelDirectories.directoryFor(FIRST_TASK).store.getSnapshot().current, { provider: 'mock', model: 'mock', reasoningEffort: 'max' })
-  assert.equal(taskActions('pollTextOnce').length, beforeNativeSelection.polls)
-  assert.equal(taskActions('selectFirstTextModel').length, beforeNativeSelection.preparations)
-  assert.deepEqual(canonical(taskState(FIRST_TASK).task.sources), beforeNativeSelection.sources)
-  passTask('sidebar model and effort choices reuse the native SSE selector and shared directory, submit the exact Task Session ID, and do not prepare models, grant sources or start messaging')
-  await act(async () => {
-    const details = fp.querySelector('[data-task-first-model] details'); details.open = true; fireEvent(details, new dom.window.Event('toggle'))
-  })
-  const firstLimit = within(fp).getByRole('spinbutton', { name: te.firstMaxTokens, exact: true })
-  for (const value of ['0', '0.5']) {
-    await act(async () => fireEvent.change(firstLimit, { target: { value } }))
-    assert.equal(within(fp).getByRole('button', { name: te.firstSelectModel, exact: true }).disabled, true)
-  }
-  await act(async () => fireEvent.change(firstLimit, { target: { value: '256' } }))
-  assert.equal(within(fp).getByRole('button', { name: te.firstPrepareModel, exact: true }).disabled, true)
-  await taskClick('firstSelectModel', fp)
-  assert.equal(taskActions('selectFirstTextModel').at(-1).request.preparationConfirmation, undefined)
-  assert.equal(taskActions('selectFirstTextModel').at(-1).request.maxTokens, 256)
-  assert.equal(within(fp).getByRole('checkbox', { name: te.firstModelPreparationConsent, exact: true }).checked, false)
-  await taskCheck('firstModelPreparationConsent', fp)
-  await act(async () => fireEvent.change(firstLimit, { target: { value: '128' } }))
-  assert.equal(within(fp).getByRole('checkbox', { name: te.firstModelPreparationConsent, exact: true }).checked, false)
-  assert.equal(within(fp).getByRole('button', { name: te.firstPrepareModel, exact: true }).disabled, true)
-  await act(async () => fireEvent.change(firstLimit, { target: { value: '256' } }))
-  await taskCheck('firstModelPreparationConsent', fp); await taskClick('firstPrepareModel', fp)
-  const prepareFirst = taskActions('selectFirstTextModel').at(-1).request
-  assert.equal(prepareFirst.preparationConfirmation, 'prepare-first-task-model-metadata'); assert.equal(prepareFirst.selectionRevision, 1)
-  assert.equal(prepareFirst.maxTokens, 256)
-  assert.equal(taskRecord(FIRST_TASK).firstText.model.configuration.maxTokens, 256)
-  assert.equal(prepareFirst.sessionId, FIRST_TASK); assert.ok(fp.textContent.includes('mock / mock'))
-  await taskClick('firstReview', fp)
-  await act(async () => fireEvent.change(firstLimit, { target: { value: '128' } }))
-  assert.equal(within(fp).getByRole('button', { name: te.firstReview, exact: true }).disabled, true)
-  assert.equal(within(fp).getByRole('checkbox', { name: te.firstApprovalConsent, exact: true }).checked, false)
-  await act(async () => fireEvent.change(firstLimit, { target: { value: '256' } }))
-  await taskClick('firstReview', fp); await taskCheck('firstApprovalConsent', fp); await taskClick('firstAuthorize', fp)
-  assert.equal(taskRecord(FIRST_TASK).allowWechat, false)
-  await taskCheck('firstSharingConsent', fp); await taskClick('firstShare', fp)
-  assert.equal(taskRecord(FIRST_TASK).allowWechat, true); assert.equal(taskState(FIRST_TASK).task.shareable, false)
-  assert.equal(dom.window.document.querySelector('[data-task-sharing-settings] [role="status"]').textContent, te.sharingDenied)
-  assert.equal(within(taskConnection()).getByRole('button', { name: en.textOnce, exact: true }).disabled, true)
-  await taskCheck('firstRunConsent', fp); await taskClick('firstRun', fp)
-  const firstPoll = taskActions('pollTextOnce').at(-1).request
-  assert.equal(firstPoll.confirmation, 'poll-one-text-reply-with-first-task-text'); assert.ok(firstPoll.firstTextConsentId)
-  assert.equal(firstPoll.historyConsentId, undefined); assert.equal(firstPoll.sessionId, FIRST_TASK)
-  assert.equal(taskRecord(FIRST_TASK).allowWechat, false); assert.ok(fp.textContent.includes(te.historyAccepted))
-  assert.ok(fp.querySelector('[data-task-text-receipt]').textContent.includes('model requests reserved 1; WeChat API accepted 1; outcome replied; audit committed'))
-  assert.equal(within(fp).getByRole('button', { name: te.firstRun, exact: true }).disabled, true)
-  await taskClick('firstRevoke', fp)
-  assert.equal(taskActions('revokeFirstTextContext').at(-1).request.sessionId, FIRST_TASK)
-  assert.equal(taskState(FIRST_TASK).task.contextBlocked, true); assert.equal(taskRecord(FIRST_TASK).sources.size, 0)
-  assertTaskCenterUnchanged(); passTask('first-text model selection and metadata preparation are separate; three execution confirmations default false; matching first IDs never enable ordinary sharing or a second composer')
-
-  const FIRST_UNCERTAIN_TASK = 'wechat-task-88888888-8888-4888-8888-888888888888'
-  await act(async () => {
-    addNativeSession(FIRST_UNCERTAIN_TASK); knownTaskIds.add(FIRST_UNCERTAIN_TASK); taskTitles.set(FIRST_UNCERTAIN_TASK, 'Synthetic uncertain first-text task')
-    const record = taskRecord(FIRST_UNCERTAIN_TASK); record.prepared = true; record.historyKnown = true; record.workspace = { ...taskWorkspace }
-    record.channel.setup = { root: taskWorkspace.root, title: taskWorkspace.title, sessionId: FIRST_UNCERTAIN_TASK, phase: 'ready', modelConfigured: true, error: null }
-    record.consumed.set('workspace:old', { sourceId: 'workspace', kind: 'directory', generation: 'synthetic-old-generation' })
-    record.channel = { ...record.channel, enabled: true, phase: 'paired', hasStoredLogin: true }; publishList()
-  })
-  await taskSelect(FIRST_UNCERTAIN_TASK); fp = await openHistory()
-  await act(async () => fireEvent.change(within(fp).getByRole('combobox', { name: te.textPurpose, exact: true }), { target: { value: 'first-text-once' } }))
-  await taskClick('firstStatus', fp)
-  await taskClick('firstSelectModel', fp); await taskCheck('firstModelPreparationConsent', fp); await taskClick('firstPrepareModel', fp)
-  await taskClick('firstReview', fp); await taskCheck('firstApprovalConsent', fp)
-  nextTaskMutation = { sessionId: FIRST_UNCERTAIN_TASK, action: 'authorizeFirstTextContext', mode: 'committed-response-lost' }
-  await taskClick('firstAuthorize', fp)
-  assert.ok(fp.textContent.includes(te.historyAuditUnknown)); assert.equal(within(fp).getByRole('button', { name: te.firstReview, exact: true }).disabled, true)
-  await taskClick('refresh', taskConnection()); fp = await openHistory()
-  assert.ok(fp.textContent.includes(te.historyAuditUnknown), 'GET cannot turn a lost first-text approval into known authority')
-  await act(async () => { fp.open = false; fireEvent(fp, new dom.window.Event('toggle')) })
-  fp = await openHistory(); assert.ok(fp.textContent.includes(te.historyAuditUnknown), 'reopening reads metadata without reconciling a lost mutation')
-  await taskClick('historyCheckReceipts', fp)
-  assert.equal(fp.textContent.includes(te.historyAuditUnknown), false)
-  // Refresh remounts the settings controls; selecting the first purpose again must not restore confirmations.
-  assert.equal(within(fp).getByRole('combobox', { name: te.textPurpose, exact: true }).value, 'history-text-once')
-  await act(async () => fireEvent.change(within(fp).getByRole('combobox', { name: te.textPurpose, exact: true }), { target: { value: 'first-text-once' } }))
-  await taskClick('firstStatus', fp)
-  assert.equal(within(fp).getByRole('checkbox', { name: te.firstSharingConsent, exact: true }).checked, false)
-  assertTaskCenterUnchanged(); passTask('lost first-text approval remains unknown through GET and panel reopen; matching first-purpose receipts alone settle audit and permission facts')
-
-  await taskCheck('firstSharingConsent', fp); await taskClick('firstShare', fp); await taskCheck('firstRunConsent', fp)
-  nextHistoryPoll = { mode: 'committed-response-lost', outcome: 'unknown' }
-  await taskClick('firstRun', fp); assert.ok(fp.textContent.includes(te.historyRunUnknown))
-  const firstUnknownPolls = taskActions('pollTextOnce').length
-  await taskClick('revokeAll', taskAside()); fp = await openHistory()
-  assert.ok(fp.textContent.includes(te.historyRunUnknown), 'revoke-all cannot erase first-text model/send uncertainty')
-  await act(async () => fireEvent.change(within(fp).getByRole('combobox', { name: te.textPurpose, exact: true }), { target: { value: 'first-text-once' } }))
-  await taskClick('firstStatus', fp)
-  await taskClick('firstRevoke', fp); await taskClick('historyCheckReceipts', fp)
-  assert.ok(fp.textContent.includes(te.historyRunUnknown)); assert.equal(fp.textContent.includes(te.historyAuditUnknown), false)
-  assert.ok([...fp.querySelectorAll('[data-task-text-receipt]')].some(value => value.textContent.includes('model requests reserved 1; WeChat API accepted 0; outcome unknown; audit committed')))
-  await act(async () => fireEvent.change(within(fp).getByRole('combobox', { name: te.textPurpose, exact: true }), { target: { value: 'history-text-once' } }))
-  await taskClick('historyStatus', fp)
-  assert.ok(fp.textContent.includes(te.historyRunUnknown)); assert.equal(within(fp).getByRole('button', { name: te.historyReview, exact: true }).disabled, true)
-  await taskSelect(FIRST_TASK); await taskSelect(FIRST_UNCERTAIN_TASK); fp = await openHistory()
-  assert.ok(fp.textContent.includes(te.historyRunUnknown), 'Task switching must preserve the shared unknown run fact')
-  await act(async () => fireEvent.change(within(fp).getByRole('combobox', { name: te.textPurpose, exact: true }), { target: { value: 'first-text-once' } }))
-  await taskClick('firstStatus', fp)
-  for (const key of ['firstApprovalConsent', 'firstSharingConsent', 'firstRunConsent', 'firstModelPreparationConsent']) assert.equal(within(fp).getByRole('checkbox', { name: te[key], exact: true }).checked, false)
-  assert.equal(within(fp).getByRole('button', { name: te.firstRun, exact: true }).disabled, true)
-  assert.equal(within(fp).getByRole('button', { name: te.firstNewInputAction, exact: true }).disabled, true, 'A prior model reservation cannot use zero-request recovery')
-  assert.equal(within(taskAside().querySelector('[data-wechat-connect-main]')).getByRole('button', { name: en.autoConnectPaired, exact: true }).disabled, true,
-    'A prior nonzero model reservation continues to block normal connection')
-  assert.equal(taskActions('pollTextOnce').length, firstUnknownPolls)
-  assertTaskCenterUnchanged(); passTask('unknown first-text run persists across both purposes, source/first revocation, matching audit checks and Task switches without retry or confirmation restoration')
-
-  const NEW_TEXT_TASK = 'wechat-task-99999999-9999-4999-8999-999999999999'
-  await act(async () => {
-    addNativeSession(NEW_TEXT_TASK); knownTaskIds.add(NEW_TEXT_TASK); taskTitles.set(NEW_TEXT_TASK, 'Synthetic independent new text')
-    const record = taskRecord(NEW_TEXT_TASK); record.prepared = true; record.historyKnown = true; record.workspace = { ...taskWorkspace }
-    record.channel.setup = { root: taskWorkspace.root, title: taskWorkspace.title, sessionId: NEW_TEXT_TASK, phase: 'ready', modelConfigured: true, error: null }
-    record.consumed.set('workspace:old', { sourceId: 'workspace', kind: 'directory', generation: 'synthetic-old-generation' })
-    record.channel = { ...record.channel, enabled: true, phase: 'paired', hasStoredLogin: true }; publishList()
-  })
-  await taskSelect(NEW_TEXT_TASK); fp = await openHistory()
-  await act(async () => fireEvent.change(within(fp).getByRole('combobox', { name: te.textPurpose, exact: true }), { target: { value: 'first-text-once' } }))
-  await taskClick('firstStatus', fp)
-  await taskClick('firstSelectModel', fp); await taskCheck('firstModelPreparationConsent', fp); await taskClick('firstPrepareModel', fp)
-  await taskClick('firstReview', fp); await taskCheck('firstApprovalConsent', fp); await taskClick('firstAuthorize', fp)
-  await taskCheck('firstSharingConsent', fp); await taskClick('firstShare', fp)
-  let priorNewTextTerminal
-  await act(async () => {
-    const authority = historyFor(NEW_TEXT_TASK).firstText, consentId = authority.status(NEW_TEXT_TASK).consentId
-    const permit = await authority.reserve(NEW_TEXT_TASK, { firstTextConsentId: consentId, confirmation: 'poll-one-text-reply-with-first-task-text' })
-    priorNewTextTerminal = (await authority.finish(permit, { outcome: 'unknown', requestAccepted: 0 })).receipt
-  })
-  await taskClick('historyCheckReceipts', fp)
-  assert.ok(fp.textContent.includes(te.historyRunUnknown))
-  await act(async () => { workspace.openSession(NEW_TEXT_TASK); layout.selectPanel('wechat-ro') })
-  await act(async () => fireEvent.click(view.getByRole('button', { name: en.launcher, exact: true })))
-  const unusedFirstSidebar = view.container.querySelector('[data-wechat-conversation][data-session-id="' + NEW_TEXT_TASK + '"]')
-  const unusedFirstMain = unusedFirstSidebar.querySelector('[data-wechat-connect-main]'), beforeUnusedMain = taskCalls().length
-  await act(async () => fireEvent.click(within(unusedFirstMain).getByRole('button', { name: en.autoCheck, exact: true })))
-  assert.equal(taskCalls().length, beforeUnusedMain + 1)
-  assert.deepEqual(taskCalls().at(-1).request, { kind: 'task', action: 'querySource', sessionId: NEW_TEXT_TASK, query: { action: 'status' } })
-  assert.equal(within(unusedFirstMain).getByRole('button', { name: en.autoConnectPaired, exact: true }).disabled, false,
-    'A committed unique first-text zero-request unknown does not block normal connection')
-  assert.equal(unusedFirstMain.textContent.includes(en.autoUnknown), false)
-  assert.equal(unusedFirstMain.textContent.includes(en.autoPriorRunUnknown), false)
-  assert.equal(unusedFirstMain.textContent.includes(en.autoLegacyBlocked), false)
-  assert.equal(taskActions('pollTextOnce').at(-1)?.request.sessionId === NEW_TEXT_TASK, false, 'Checking the old terminal performs no polling')
-  await act(async () => { workspace.openSession(sessionId); layout.selectPanel('wechat-ro') })
-  await click(en.launcher); await taskSelect(NEW_TEXT_TASK); fp = await openHistory()
-  await act(async () => fireEvent.change(within(fp).getByRole('combobox', { name: te.textPurpose, exact: true }), { target: { value: 'first-text-once' } }))
-  await taskClick('firstStatus', fp)
-  const beforeNewInput = { actions: taskActions('allowNewFirstText').length, polls: taskActions('pollTextOnce').length,
-    oldReceipt: canonical(priorNewTextTerminal), archive: canonical(states.get(sessionId)), sources: canonical(taskState(NEW_TEXT_TASK).task.sources) }
-  assert.equal(within(fp).getByRole('checkbox', { name: te.firstNewInputConsent, exact: true }).checked, false)
-  assert.equal(within(fp).getByRole('button', { name: te.firstNewInputAction, exact: true }).disabled, true)
-  await taskClick('firstNewInputAction', fp)
-  assert.equal(taskActions('allowNewFirstText').length, beforeNewInput.actions)
-  await taskCheck('firstNewInputConsent', fp)
-  nextTaskMutation = { sessionId: NEW_TEXT_TASK, action: 'allowNewFirstText', mode: 'committed-response-lost' }
-  await taskClick('firstNewInputAction', fp)
-  assert.equal(taskActions('allowNewFirstText').length, beforeNewInput.actions + 1)
-  assert.equal(within(fp).getByRole('checkbox', { name: te.firstNewInputConsent, exact: true }).checked, false)
-  assert.equal(within(fp).getByRole('button', { name: te.firstReview, exact: true }).disabled, true)
-  await taskClick('firstStatus', fp)
-  assert.equal(within(fp).getByRole('button', { name: te.firstReview, exact: true }).disabled, true, 'A plain status read cannot settle a lost new-input decision')
-  await taskClick('historyCheckReceipts', fp)
-  assert.ok(fp.textContent.includes(te.firstNewInputAllowed))
-  assert.ok(fp.textContent.includes(te.historyRunUnknown), 'Independent new input cannot erase the old unknown receipt')
-  assert.equal(within(fp).getByRole('button', { name: te.firstReview, exact: true }).disabled, false)
-  for (const key of ['firstApprovalConsent', 'firstSharingConsent', 'firstRunConsent']) assert.equal(within(fp).getByRole('checkbox', { name: te[key], exact: true }).checked, false)
-  assert.equal(taskActions('pollTextOnce').length, beforeNewInput.polls)
-  const recoveryRequest = taskActions('allowNewFirstText').at(-1).request
-  assert.deepEqual(recoveryRequest, { kind: 'task', sessionId: NEW_TEXT_TASK, action: 'allowNewFirstText',
-    priorRunId: priorNewTextTerminal.runId, priorConsentId: priorNewTextTerminal.consentId, confirmation: 'allow-new-first-text-after-unknown' })
-  await taskClick('firstReview', fp); await taskCheck('firstApprovalConsent', fp); await taskClick('firstAuthorize', fp)
-  await taskCheck('firstSharingConsent', fp); await taskClick('firstShare', fp); await taskCheck('firstRunConsent', fp)
-  nextHistoryPoll = { outcome: 'empty' }
-  await taskClick('firstRun', fp)
-  assert.equal(taskActions('pollTextOnce').length, beforeNewInput.polls + 1)
-  assert.ok(fp.textContent.includes(te.historyRunUnknown))
-  assert.equal(within(fp).getByRole('button', { name: te.firstRun, exact: true }).disabled, true)
-  assert.equal(historyFor(NEW_TEXT_TASK).firstText.status(NEW_TEXT_TASK).newInputAllowed, false)
-  assert.deepEqual(canonical(historyFor(NEW_TEXT_TASK).firstText.status(NEW_TEXT_TASK).receipts.find(value => value.operation === 'terminal' && value.runId === priorNewTextTerminal.runId)), beforeNewInput.oldReceipt)
-  assert.deepEqual(canonical(taskState(NEW_TEXT_TASK).task.sources), beforeNewInput.sources)
-  assert.deepEqual(canonical(states.get(sessionId)), beforeNewInput.archive)
-  assertTaskCenterUnchanged()
-  passTask('a committed zero-request unknown permits one explicitly approved new text, retains its old receipt, blocks lost recovery responses until matching receipts, and consumes the new permission without a retry')
-  await taskSelect(TASK1)
+  assert.equal(taskActions('selectFirstTextModel').length, 0)
+  assert.equal(taskConnection().querySelector('[data-task-native-model]'), null, 'Model selection remains in the official conversation composer')
+  passTask('official composer owns model selection; retired sealed execution controls cannot start a request from the sidebar')
 
   const taskCapRegistration=slots._core.entries('sidebar.right.pane.tab').find(entry=>entry.options.key===client.CONVERSATION_TAB_ID)
   const taskCap=taskCapRegistration.inject()
@@ -2667,18 +2344,21 @@ try {
   assert.equal(autoMain().querySelectorAll('input,textarea,select').length, 0)
   assert.equal(autoMain().textContent.includes(AUTOTASK), false)
   const autoBefore = taskCalls().length, autoCenter = view.container.querySelector('[data-native-sse]')
-  const mainModelPicker = autoMain().querySelector('[data-wechat-native-model]')
+  const mainModelPicker = view.container.querySelector('[data-native-model-picker="' + AUTOTASK + '"]')
   assert.ok(within(mainModelPicker).getByRole('button', { name: /^Select model, current/ }))
   await act(async () => fireEvent.click(within(mainModelPicker).getByRole('button', { name: /^Select model, current/ })))
   await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitem', { name: /^Model/ })))
   await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitemradio', { name: 'Synthetic alternate model', exact: true })))
   assert.deepEqual(nativeModelCalls.at(-1), { sessionId: AUTOTASK, provider: 'mock', model: 'alternative' })
+  let popupRows
+  await act(async () => { popupRows = await modelCommand.ui.options({ sessionId: AUTOTASK }) })
+  assert.equal(popupRows.find(row => row.label === 'Synthetic alternate model').active, true, 'Native model command and composer share the same selection')
   const centerModelPicker = view.container.querySelector('[data-native-model-picker="' + AUTOTASK + '"]')
-  assert.ok(centerModelPicker.textContent.includes('Synthetic alternate model'), 'The main sidebar picker updates the native SSE picker')
+  assert.ok(centerModelPicker.textContent.includes('Synthetic alternate model'), 'Native model selection updates the composer')
   await act(async () => fireEvent.click(within(centerModelPicker).getByRole('button', { name: /^Select model, current/ })))
   await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitem', { name: /^Model/ })))
   await act(async () => fireEvent.click(within(dom.window.document.body).getByRole('menuitemradio', { name: 'Synthetic native model', exact: true })))
-  assert.ok(mainModelPicker.textContent.includes('Synthetic native model'), 'The native SSE picker updates the main sidebar picker')
+  assert.ok(mainModelPicker.textContent.includes('Synthetic native model'), 'Native selection remains in the composer')
   assert.equal(taskCalls().length, autoBefore, 'Native model selection performs no Task connection, preparation or sharing action')
   assert.ok(view.container.querySelector('[data-native-sse]') === autoCenter, 'Native model selection must retain the SSE DOM')
   if (process.env.WECHAT_TEST_PROGRESS === '1') console.log('AUTO connection start');
@@ -2950,7 +2630,8 @@ try {
   assert.deepEqual(nativeBefore, ['rightbar.session', 'conversation.session.header.corner'].map(name => slots._core.entries(name)[0]))
   assert.equal(entryErrors.length, 0); assert.equal(networkAttempts, 0)
   assert.deepEqual([...new Set(actionCalls().filter(call => call.request.kind !== 'task').map(call => call.request.action))].sort(), ['grantSnapshot','queryArchive','revokeSnapshot'].sort(), 'Only data actions remain in the ordinary UI; legacy 12-action codec compatibility stays tested above')
-  assert.deepEqual([...new Set(taskCalls().map(call => call.request.action))].sort(), [...hostWire.TASK_WIRE.TASK_ACTION_NAMES].sort(), 'All twenty-nine Task actions must be exercised without weakening historical or ordinary actions')
+  const retiredActions = new Set(['allowNewFirstText', 'authorizeFirstTextContext', 'authorizeHistoricalContext', 'reviewFirstTextContext', 'reviewHistoricalContext', 'revokeFirstTextContext', 'revokeHistoricalContext', 'selectFirstTextModel'])
+  assert.deepEqual([...new Set(taskCalls().map(call => call.request.action))].sort(), hostWire.TASK_WIRE.TASK_ACTION_NAMES.filter(name => !retiredActions.has(name)).sort(), 'Every supported Task action is exercised; retired sealed controls produce no request')
   assert.equal(indexCases.length, 6); assert.equal(exportCases.length, 5)
   console.log('PASS tab/scope/namespace teardown, late QR/navigation cancellation, native singleton preservation, one parent withdrawal, network attempts=0')
   console.log(JSON.stringify({ok:true,technicalOnly:true,descriptorCount:11,strictActions:positives.length,rejectedRequests:negatives.length,userActions:actionCalls().length,networkAttempts,

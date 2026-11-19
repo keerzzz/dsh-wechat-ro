@@ -1,6 +1,6 @@
 {
   "name": "dsh-wechat-ro",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "WeChat history workspace for DeepSeek Harness targeting Windows, macOS and Linux, with search, daily insight cards and read-only MCP.",
@@ -151,8 +151,8 @@
     "lib/daily-cards.js"
   ],
   "engines": {
-    "dsh": ">=0.2.1-rc.2",
-    "node": "^22.19.0 || >=24.0.0"
+    "dsh": ">=0.2.2-rc.5 <0.3.0",
+    "node": ">=24.9.0"
   },
   "dependencies": {
     "qrcode-generator": "2.0.4",
@@ -171,24 +171,25 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-agent": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-agent-default-model": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-agent-preset": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-agent-tool-presentation": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-client-connection": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-credentials": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-agent": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-agent-default-model": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-agent-preset": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-agent-tool-presentation": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-client-connection": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-credentials": "^0.2.2-rc.5",
     "@deepseek-ai/dsh-fs": "*",
-    "@deepseek-ai/dsh-llm": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-sandbox-policy": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-scope": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-session": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-session-projection": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-session-query": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-storage-domain": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-tool-present": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-sandbox-policy": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-scope": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-session": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-session-projection": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-session-query": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-storage-domain": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-tool-present": "^0.2.2-rc.5",
     "@deepseek-ai/dsh-typert-protocol": "*",
-    "@deepseek-ai/dsh-working-directory": "^0.2.1-rc.2",
-    "@deepseek-ai/dsh-workspace": "^0.2.1-rc.2"
+    "@deepseek-ai/dsh-working-directory": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-workspace": "^0.2.2-rc.5",
+    "@deepseek-ai/dsh-tool-executor-native": "^0.2.2-rc.5"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-llm": {
@@ -237,6 +238,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-tool-present": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tool-executor-native": {
       "optional": true
     }
   },
