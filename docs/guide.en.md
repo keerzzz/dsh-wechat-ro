@@ -16,17 +16,17 @@ In the implemented environment, it connects a personal WeChat bot to a native DS
 
 ## Installation and DSH versions
 
-Plugin **0.2.1** supports the official **DSH `>=0.2.2-rc.5 <0.3.0`** release and **Node.js `>=24.9.0`**. Automatic replies use native DSH conversations; the previous sealed history and first-text workflows have been retired. Installation requires no DSH source changes. See the [installation guide](installation.md) and [upgrade notes](upgrading-0.2.1.md).
+Plugin **0.2.2-rc.1** supports the official **DSH `>=0.2.2-rc.5 <0.3.0`** release and **Node.js `>=24.9.0`**. Automatic replies use native DSH conversations; the previous sealed history and first-text workflows have been retired. Installation requires no DSH source changes. See the [installation guide](installation.md) and [upgrade notes](upgrading-0.2.1.md).
 
-On the computer running DSH:
+Open **Plugins → Add plugin** and enter this single address:
 
-```bash
-git clone https://github.com/keerzzz/dsh-wechat-ro.git
-cd dsh-wechat-ro
-pnpm --dir plugin install --prod --frozen-lockfile --config.auto-install-peers=false
+```text
+https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.1/dsh-wechat-ro-0.2.2-rc.1.tgz
 ```
 
-Open **Plugins → Add plugin**, enter the absolute path to this checkout's `plugin/` directory, install, then select **Enable now**. In a compatible host, select a conversation directory and model, connect from the WeChat sidebar, then import history. The installation guide also covers a new DSH host, Windows/macOS/Linux paths, CLI installation and first-use verification.
+Select **Install → Enable now**. If the host cannot reach GitHub, download the `.tgz` from the [Release](https://github.com/keerzzz/dsh-wechat-ro/releases/tag/v0.2.2-rc.1), copy it to the host and enter its absolute file path instead. Source installation commands in the [installation guide](installation.md) run in a terminal; the plugin dialog accepts one package address or the absolute path to `plugin/`, whose directory contains the bundle manifest.
+
+Select a conversation directory and model, connect from the WeChat sidebar, then import history.
 
 ## Development setup
 
@@ -39,7 +39,7 @@ pnpm --dir plugin install --frozen-lockfile --config.auto-install-peers=false
 pnpm --dir plugin run test:ci
 ```
 
-CI uses Node.js 24.15.0, pnpm 10.34.1 and Python 3.12. Seven independent plugin gates run serially with synthetic fixtures.
+CI uses Node.js 24.15.0, pnpm 10.34.1 and Python 3.12. Independent plugin gates and distribution checks run serially with synthetic fixtures.
 
 Native DSH integration requires the host capabilities listed in the installation guide. Development tests using SDK peers need a compatible SDK environment; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 

@@ -1,6 +1,6 @@
 {
   "name": "dsh-wechat-ro",
-  "version": "0.2.1",
+  "version": "0.2.2-rc.1",
   "private": true,
   "type": "module",
   "description": "WeChat history workspace for DeepSeek Harness targeting Windows, macOS and Linux, with search, daily insight cards and read-only MCP.",
@@ -295,7 +295,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/keerzzz/dsh-wechat-ro.git"
+    "url": "git+https://github.com/keerzzz/dsh-wechat-ro.git",
+    "directory": "plugin"
   },
   "homepage": "https://github.com/keerzzz/dsh-wechat-ro#readme",
   "bugs": {

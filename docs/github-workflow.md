@@ -107,6 +107,7 @@ PR 检查通过、讨论处理完后 Squash 合并。Squash 标题沿用提交�
 | `test-daily-cards` | 日期、统计、引用、来源分类与补跑 |
 | `test-archive-access` | 数据范围、分页和查询 worker |
 | `test-qr-renderer` | 本地二维码生成与独立解码 |
+| `test-package` | 实际 tarball 的入口、依赖文件、采集助手及字节一致性 |
 
 DSH UI、声明一致性及原生会话门禁依赖兼容 SDK，按 CONTRIBUTING.md 在已有开发环境单项执行。手机收到回复、真实历史采集及重启恢复另需现场验收。公开 CI 通过的含义是上述独立门禁通过，不能替代这些环境验证。
 
@@ -121,11 +122,11 @@ git switch main
 git pull --ff-only
 pnpm --dir plugin run test:ci
 pnpm --dir plugin pack --pack-destination ../dist
-git tag -a v0.2.0 -m 'Release v0.2.0'
-git push origin v0.2.0
+git tag -a v0.2.2-rc.1 -m 'Release v0.2.2-rc.1'
+git push origin v0.2.2-rc.1
 ```
 
-`v0.2.0` 是当前 package 版本示例；实际发布时使用经过确认的版本。检查打包清单后在 GitHub 创建 Release，附变更、兼容环境、已完成验收及包文件。当前 package 为 `private: true`，不自动向 npm 发布；本次 CI 也不自动打标签、发 Release 或部署。
+`v0.2.2-rc.1` 是当前 package 版本示例；实际发布时使用经过确认的版本。通过 `test-package` 检查实际 tarball 后在 GitHub 创建预发布 Release，附变更、兼容环境、已完成验收及包文件。当前 package 为 `private: true`，不自动向 npm 发布；本次 CI 也不自动打标签、发 Release 或部署。
 
 主线发现问题时新建修复分支，必要时使用 `git revert <commit>` 撤销该提交，再走 PR。公开主线回退保留历史。
 

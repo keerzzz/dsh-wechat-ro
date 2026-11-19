@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const runner = fileURLToPath(new URL('./run-tests.mjs', import.meta.url));
 const gates = ['check-quality', 'test-weixin-api', 'test-weixin-channel', 'test-weixin-updates-diagnostic',
-  'test-local-history', 'test-daily-cards', 'test-content-sources', 'test-content-analysis', 'test-archive-access', 'test-qr-renderer'];
+  'test-local-history', 'test-daily-cards', 'test-content-sources', 'test-content-analysis', 'test-archive-access', 'test-qr-renderer', 'test-package'];
 
 for (const gate of gates) {
   const result = spawnSync(process.execPath, [runner, '--only', gate], {
