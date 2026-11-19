@@ -1,0 +1,88 @@
+# DSH WeChat RO — 微信历史搜索与每日数据卡片
+
+[![CI](https://github.com/keerzzz/dsh-wechat-ro/actions/workflows/ci.yml/badge.svg)](https://github.com/keerzzz/dsh-wechat-ro/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**WeChat chat history search, automatic local snapshots and daily insight cards for DeepSeek Harness, with an optional read-only Python MCP server.**
+
+把本人微信历史接入 DeepSeek Harness（DSH）：在原生微信侧栏扫码连接、一键导入，按联系人、日期和关键词搜索，查看带原文引用的每日数据卡片。搜索前检查更新，空闲时每分钟检查一次；每天生成卡片的时间可在设置中选择。
+
+[使用指南](docs/getting-started.md) · [English guide](docs/guide.en.md) · [架构与数据口径](docs/architecture.md) · [开发工作流](docs/github-workflow.md) · [代码质量](docs/code-quality.md) · [贡献](CONTRIBUTING.md) · [更新记录](CHANGELOG.md)
+
+## 功能
+
+| 能力 | 用户操作与结果 |
+| --- | --- |
+| 微信机器人 | 选择原生会话目录和模型，扫码连接，在本人机器人对话接收自动文字回复 |
+| 一键历史导入 | 从本机 Linux 微信生成独立的解密副本，历史查询读取副本 |
+| 自然语言搜索 | 按姓名、相对日期和关键词检索，返回原文、北京时间和记录引用 |
+| 自动更新 | 搜索前检查变化；空闲时每分钟检查，有变化才更新副本 |
+| 每日数据卡片 | 指标、近 7 天趋势、消息构成、会话排名，以及带证据的重点和待办线索 |
+| 来源分类 | 群聊、个人、公众号、服务号分别展示，卡片按来源会话分组 |
+| 可选 MCP | 为支持 MCP 的客户端提供联系人、会话、消息、搜索和时间线等只读工具 |
+
+查询示例：
+
+```text
+整理李明近 7 天的聊天内容，列出原文和北京时间。
+搜索今天文件传输助手里的“项目验收”，给出记录引用。
+总结昨天群聊中的重点和待办线索。
+```
+
+示例姓名与关键词为演示数据。
+
+## 快速开始
+
+先克隆并运行独立测试：
+
+```bash
+git clone https://github.com/keerzzz/dsh-wechat-ro.git
+cd dsh-wechat-ro
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+pnpm --dir plugin install --frozen-lockfile --config.auto-install-peers=false
+pnpm --dir plugin run test:ci
+```
+
+CI 使用 Node.js 24.15.0、pnpm 10.34.1、Python 3.12，七项插件门禁逐项串行运行。DSH 集成还需提供兼容的宿主 SDK；原生会话桥接使用了宿主扩展，当前尚未整理成可复现的公开 SDK 安装环境。
+
+已有兼容 DSH 环境时，通过 Plugin Manager 加载本仓库的 `plugin/`。进入原生会话，选择目录和模型，打开微信侧栏并扫码；随后一键导入历史，再设置每日卡片更新时间。完整步骤见[使用指南](docs/getting-started.md)。
+
+只使用 MCP 时，将 `WECHAT_SNAPSHOT_DIR` 指向独立解密副本，再运行：
+
+```bash
+WECHAT_SNAPSHOT_DIR=/absolute/private/snapshot/decrypted \
+  .venv/bin/python -m wechat_ro_mcp
+```
+
+这会启动 stdio MCP 服务；客户端配置见[使用指南](docs/getting-started.md#可选只读-mcp)。
+
+## 支持范围与进度
+
+Linux 微信 **4.1.13.26** 已在本机完成历史导入、自动更新、手机搜索回复及北京时间核验。运行时按已验证的构建身份检查；其他微信构建以及 Windows、macOS 的历史采集仍需适配和验收。
+
+每日摘要目前使用有界摘录，界面显示实际覆盖范围。待办卡片表示从历史提取的线索，负责人、完成状态和闭环追踪待实现。真实次日定时执行尚待现场验收；Host 重启后需重新连接和导入。
+
+朋友圈、小程序内部数据尚未接入，小程序聊天卡片的专门解析也待验证。公众号与服务号的分类覆盖已导入的聊天记录。
+
+插件版本为 `0.2.0`，当前从源码使用。公开 CI 覆盖七项独立离线门禁；DSH UI、原生会话和真实微信收发需要兼容 SDK 与本人账号另行验证。
+
+## 项目结构
+
+```text
+plugin/          DSH 插件、原生界面、运行时与单包测试
+wechat_ro_mcp/   Python 只读 MCP 服务
+scripts/        本地历史准备与快照验证
+vendor/         WCDB 工具及本地改编
+deploy/         可选 MCP 配置示例
+docs/           使用、架构、开发与维护指南
+.github/        CI、Issue/PR 模板、CODEOWNERS 与依赖更新
+```
+
+历史查询采用独立 SQLite 副本；一键导入在首次需要取钥时调用系统认证。机器人配对、模型处理和微信外发在微信连接流程中确认。数据库、密钥和聊天日志保留在本地，详见[架构与数据口径](docs/architecture.md)。
+
+## 贡献与许可证
+
+欢迎通过 [Issues](https://github.com/keerzzz/dsh-wechat-ro/issues) 提交可复现的故障或功能建议，通过 Pull Request 贡献改进。环境、验证和提交约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题使用[私密报告](https://github.com/keerzzz/dsh-wechat-ro/security/advisories/new)。
+
+原创代码采用 [MIT](LICENSE)。第三方代码保留原许可证与来源，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目为社区开发的 DSH 插件。
