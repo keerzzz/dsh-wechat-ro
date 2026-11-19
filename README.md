@@ -1,20 +1,22 @@
-# DSH WeChat RO — 微信历史搜索与每日数据卡片
+# DSH WeChat RO — 多系统微信历史搜索与每日数据卡片
 
 [![CI](https://github.com/keerzzz/dsh-wechat-ro/actions/workflows/ci.yml/badge.svg)](https://github.com/keerzzz/dsh-wechat-ro/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**WeChat chat history search, automatic local snapshots and daily insight cards for DeepSeek Harness, with an optional read-only Python MCP server.**
+**A WeChat history workspace for DeepSeek Harness targeting Windows, macOS and Linux, with history search, daily insight cards and read-only MCP.**
 
-把本人微信历史接入 DeepSeek Harness（DSH）：在原生微信侧栏扫码连接、一键导入，按联系人、日期和关键词搜索，查看带原文引用的每日数据卡片。搜索前检查更新，空闲时每分钟检查一次；每天生成卡片的时间可在设置中选择。
+项目面向 **Windows、macOS、Linux 桌面微信**，将各系统的本人微信历史接入统一的 DeepSeek Harness（DSH）工作区，提供联系人、日期和关键词搜索，以及带原文引用的每日数据卡片。采集和文件访问按平台适配，查询、证据与卡片口径共用。当前已落地和验收的采集链路为 Linux，三平台进度见下表。
 
-[使用指南](docs/getting-started.md) · [English guide](docs/guide.en.md) · [架构与数据口径](docs/architecture.md) · [开发工作流](docs/github-workflow.md) · [代码质量](docs/code-quality.md) · [贡献](CONTRIBUTING.md) · [更新记录](CHANGELOG.md)
+在已适配环境中，可通过原生微信侧栏扫码连接、一键导入历史。搜索前检查更新，空闲时每分钟检查一次；每天生成卡片的时间可在设置中选择。
+
+[安装与 DSH 版本](docs/installation.md) · [平台支持与适配](docs/platform-support.md) · [使用指南](docs/getting-started.md) · [English guide](docs/guide.en.md) · [架构与数据口径](docs/architecture.md) · [开发工作流](docs/github-workflow.md) · [代码质量](docs/code-quality.md) · [贡献](CONTRIBUTING.md) · [更新记录](CHANGELOG.md)
 
 ## 功能
 
 | 能力 | 用户操作与结果 |
 | --- | --- |
 | 微信机器人 | 选择原生会话目录和模型，扫码连接，在本人机器人对话接收自动文字回复 |
-| 一键历史导入 | 从本机 Linux 微信生成独立的解密副本，历史查询读取副本 |
+| 一键历史导入 | 从已适配平台的本机微信生成独立解密副本；当前 Linux 链路已实现，Windows/macOS 待适配 |
 | 自然语言搜索 | 按姓名、相对日期和关键词检索，返回原文、北京时间和记录引用 |
 | 自动更新 | 搜索前检查变化；空闲时每分钟检查，有变化才更新副本 |
 | 每日数据卡片 | 指标、近 7 天趋势、消息构成、会话排名，以及带证据的重点和待办线索 |
@@ -33,22 +35,21 @@
 
 ## 快速开始
 
-先克隆并运行独立测试：
+插件当前版本 **0.2.0**，DSH 声明要求 **`>=0.2.1-rc.2`**，本机验收基于带宿主扩展的 **DSH 0.2.1-rc.2**。Node.js 已验证版本为 **24.15.0**，插件 pnpm 为 **10.34.1**。完整原生任务所需的宿主扩展尚待分发，兼容条件见[安装与版本表](docs/installation.md#版本与兼容环境)。
+
+在运行 DSH 的电脑上下载并安装插件运行依赖：
 
 ```bash
 git clone https://github.com/keerzzz/dsh-wechat-ro.git
 cd dsh-wechat-ro
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt
-pnpm --dir plugin install --frozen-lockfile --config.auto-install-peers=false
-pnpm --dir plugin run test:ci
+pnpm --dir plugin install --prod --frozen-lockfile --config.auto-install-peers=false
 ```
 
-CI 使用 Node.js 24.15.0、pnpm 10.34.1、Python 3.12，七项插件门禁逐项串行运行。DSH 集成还需提供兼容的宿主 SDK；原生会话桥接使用了宿主扩展，当前尚未整理成可复现的公开 SDK 安装环境。
+在 DSH **插件 → 添加插件** 中填写本仓库 `plugin/` 的绝对路径，安装后点击 **立即启用**。进入原生会话，选择目录和模型，打开微信侧栏并扫码；随后一键导入历史，再设置每日卡片更新时间。
 
-已有兼容 DSH 环境时，通过 Plugin Manager 加载本仓库的 `plugin/`。进入原生会话，选择目录和模型，打开微信侧栏并扫码；随后一键导入历史，再设置每日卡片更新时间。完整步骤见[使用指南](docs/getting-started.md)。
+新建 DSH 环境、三系统路径、CLI 安装及首次验收见[安装指南](docs/installation.md)。开发依赖和单包串行测试见[贡献指南](CONTRIBUTING.md#环境与独立测试)。
 
-只使用 MCP 时，将 `WECHAT_SNAPSHOT_DIR` 指向独立解密副本，再运行：
+只使用 MCP 时，先按[安装指南](docs/installation.md#只需要-mcp-或开发测试)准备 Python 环境，将 `WECHAT_SNAPSHOT_DIR` 指向独立解密副本，再运行：
 
 ```bash
 WECHAT_SNAPSHOT_DIR=/absolute/private/snapshot/decrypted \
@@ -57,9 +58,15 @@ WECHAT_SNAPSHOT_DIR=/absolute/private/snapshot/decrypted \
 
 这会启动 stdio MCP 服务；客户端配置见[使用指南](docs/getting-started.md#可选只读-mcp)。
 
-## 支持范围与进度
+## 平台支持与进度
 
-Linux 微信 **4.1.13.26** 已在本机完成历史导入、自动更新、手机搜索回复及北京时间核验。运行时按已验证的构建身份检查；其他微信构建以及 Windows、macOS 的历史采集仍需适配和验收。
+| 目标系统 | 一键采集与自动更新 | 原生历史查询 | 当前验证 |
+| --- | --- | --- | --- |
+| Windows | 待实现平台采集 | 待适配路径和文件读取 | 待环境验收 |
+| macOS | 待实现平台采集 | 待适配文件读取 | 待环境验收 |
+| Linux | 已实现 | 已实现 | 微信 **4.1.13.26** 已完成本机端到端验收 |
+
+Linux 的已验证记录包括历史导入、自动更新、手机搜索回复和北京时间。当前采集使用 `/proc`、系统认证及已核验构建；原生查询 worker 使用 Linux 文件描述符路径。因此跨系统工作同时包含采集和原生文件查询的适配。平台、微信版本与数据格式分别验收，详见[平台支持说明](docs/platform-support.md)。
 
 每日摘要目前使用有界摘录，界面显示实际覆盖范围。待办卡片表示从历史提取的线索，负责人、完成状态和闭环追踪待实现。真实次日定时执行尚待现场验收；Host 重启后需重新连接和导入。
 

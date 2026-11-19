@@ -2,9 +2,11 @@
 
 使用短期功能分支和 Pull Request 协作，`main` 保持可用。完整流程见 [GitHub 工作流](docs/github-workflow.md)。
 
+产品目标为 Windows、macOS、Linux 多系统接入。平台改动需分别记录宿主系统、来源微信版本与数据格式，验收要求见 [平台支持说明](docs/platform-support.md)。
+
 ## 环境与独立测试
 
-当前公开 CI 使用 Linux、Node.js 24.15.0、pnpm 10.34.1、Python 3.12。插件运行要求见 [plugin/package.json](plugin/package.json)，其他版本的支持情况以实际验证为准。
+当前公开 CI 使用 Linux、Node.js 24.15.0、pnpm 10.34.1、Python 3.12。安装及 DSH／SDK 版本见[安装指南](docs/installation.md#版本与兼容环境)，插件运行要求见 [plugin/package.json](plugin/package.json)。DSH 源码构建使用它自己的 `packageManager`，与插件独立依赖的 pnpm 版本分别记录。
 
 在仓库根目录执行：
 
