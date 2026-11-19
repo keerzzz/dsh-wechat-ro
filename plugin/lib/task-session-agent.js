@@ -1,3 +1,4 @@
+import { NativeToolExecutor } from '@deepseek-ai/dsh-tool-executor-native';
 import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope';
 import { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy';
 import { foldRequestHeader } from '@deepseek-ai/dsh-session';
@@ -166,14 +167,22 @@ export async function installTaskSessionPolicy(agentCtx, agent, sandboxPolicy) {
   if (existing) { if (!policyAllows(existing, { agent, name: TASK_SOURCE_TOOL })) fail('unsafe-session'); return; }
   if (scopeOf(agentCtx) === undefined || agent.ctx !== agentCtx || !sandboxPolicy || typeof sandboxPolicy.resolve !== 'function') fail('unsafe-session');
   const tools = agentCtx.get('tools'), systemPrompt = agentCtx.get('systemPrompt'), workingDirectory = agentCtx.get('workingDirectory');
-  if (!tools || !['register', 'restrict', 'guard', 'presentAs', 'get'].every(name => typeof tools[name] === 'function')
+  if (!tools || !['register', 'restrict', 'guard', 'setExecutor', 'get'].every(name => typeof tools[name] === 'function')
     || !systemPrompt || typeof systemPrompt.section !== 'function' || !workingDirectory || typeof workingDirectory.get !== 'function') fail('unsafe-session');
   const policy = { agent, tools, systemPrompt, workingDirectory, sandboxPolicy, definitions: new Map(), executions: new Map(), live: true, ready: false, binding: bindings.get(agent.session.id) ?? null, turn: null };
   const disposers = [], executions = policy.executions;
   try {
     disposers.push(tools.restrict({ allow: [] }));
     disposers.push(tools.guard(exec => policyAllows(policy, exec) ? undefined : DENIED));
-    disposers.push(tools.presentAs('native'));
+    const nativeExecutor = new NativeToolExecutor(agentCtx);
+    disposers.push(tools.setExecutor({
+      describe(definitions) { return nativeExecutor.describe(definitions.filter(tool => TOOL_NAMES.includes(tool.name))); },
+      execute(input) { return nativeExecutor.execute(input); },
+    }));
+    disposers.push(agentCtx.on('llm/stream', (request, next) => {
+      if (request.sessionId === agent.session.id && request.tools?.some(tool => !TOOL_NAMES.includes(tool.name))) fail('unsafe-session');
+      return next();
+    }, { prepend: true }));
     disposers.push(systemPrompt.section({ name: 'wechat-task-policy-v1', order: 0, text: PROMPT, complete: true, interpolate: false }));
     setSandboxMode(agent.session, 'workspace-write');
     if (sandboxPolicy.resolve({ session: agent.session }).mode !== 'workspace-write') fail('unsafe-session');
@@ -237,7 +246,7 @@ export async function installTaskSessionPolicy(agentCtx, agent, sandboxPolicy) {
         const value = await next();
         if (context.signal.aborted || policy.binding !== binding) fail('aborted');
         if (!TOOL_NAMES.every(name => policyAllows(policy, { agent, name }))) fail('unsafe-session');
-        return { ...value, tools: value.tools.filter(tool => TOOL_NAMES.includes(tool.name)) };
+        return value;
       } finally { if (original === undefined) delete context.signal; else context.signal = original; }
     }, { prepend: true }));
     disposers.push(agentCtx.on('tools/execute', async (exec, next) => {

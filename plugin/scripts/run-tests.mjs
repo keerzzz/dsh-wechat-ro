@@ -16,7 +16,7 @@ if (process.argv.length > 2 && !only) throw new Error('Usage: node scripts/run-t
 // Standalone gates use only this package's dependencies. SDK type gates keep
 // their existing dependency requirement without loading it for unrelated tests.
 const compiler = !only || ['declarations', 'consumer-types'].includes(only)
-  ? createRequire(require.resolve('@deepseek-ai/dsh-typert-loader')).resolve('typescript/bin/tsc') : undefined
+  ? require.resolve('typescript/bin/tsc') : undefined
 const python = process.env.WECHAT_TEST_PYTHON || (existsSync(join(PROJECT, '.venv/bin/python')) ? join(PROJECT, '.venv/bin/python') : 'python3')
 const base = mkdtempSync(join(tmpdir(), 'wechat-ro-plugin-tests-'))
 const temporary = join(base, 'tmp')

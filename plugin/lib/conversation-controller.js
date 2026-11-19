@@ -1,5 +1,3 @@
-import { homedir as desktopHome } from 'node:os';
-import { resolve as desktopPath } from 'node:path';
 // Owner-only native conversation coordinator. No constructor snapshot/credential/network I/O.
 import { z } from 'zod';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
@@ -18,7 +16,7 @@ import { CONVERSATION_NAMESPACE, CONVERSATION_METHOD_NAMES, CONVERSATION_ERROR_C
   stateSchema, actionResultSchema, TASK_WIRE, conversationRequestSchemaFor } from './conversation-wire.js';
 
 export const CONVERSATION_VERSION = '0.2.0';
-const ORIGINAL_SOURCE = desktopPath(desktopHome(), 'Documents/xwechat_files'); // Denied metadata, never probed.
+const ORIGINAL_SOURCE = '/home/keer/Documents/xwechat_files'; // Denied metadata, never probed.
 const POLLER_OWNERS = new Map(); // One active binding per account in this loaded Host generation.
 const FIXED_CODES = new Set(CONVERSATION_ERROR_CODES);
 const API_ERROR_CODES = Object.freeze({
@@ -699,6 +697,11 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
     const parsed = conversationRequestSchemaFor('conversationAction').safeParse(raw);
     if (!parsed.success) fail('INVALID_REQUEST');
     const request = parsed.data, task = request.kind === 'task';
+    // The official host does not implement the former sealed single-text modes.
+    // Keep their recorded facts and revoke operations, but retire new execution.
+    if (task && (['selectFirstTextModel', 'reviewFirstTextContext', 'authorizeFirstTextContext', 'allowNewFirstText',
+      'reviewHistoricalContext', 'authorizeHistoricalContext'].includes(request.action)
+      || request.firstTextConsentId !== undefined || request.historyConsentId !== undefined)) fail('UNAVAILABLE');
     // Reject source locations before opening state or resuming a native Session.
     if (request.action === 'grantSnapshot' || request.action === 'prepareSnapshot') validateArchiveRoot(request.root, [sourceRoot]);
     if (task && (request.action === 'createConversation' || request.action === 'grantWorkspace')) validateTaskDirectory(request.workspace.root, [sourceRoot]);

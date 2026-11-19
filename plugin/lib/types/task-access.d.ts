@@ -1,7 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { Session } from '@deepseek-ai/dsh-session';
 import type { ZodType } from 'zod';
-import type { SealedFirstTextLease, SealedFirstTextModelObservation, SealedFirstTextModelSelection, SealedFirstTextModelSummary, SealedFirstTextObservation, SealedFirstTextReason, SealedFirstTextReviewSummary } from '@deepseek-ai/dsh-agent';
 import type { ArchiveAccessState, ArchiveGrantRequest, ArchiveQuery } from './archive-access.js';
 import type { WeixinDeliveryDescriptor, WeixinMediaGuards } from './weixin-media.js';
 export declare const TASK_PRESET_ID: 'dsh-wechat-task-v1';
@@ -262,26 +261,93 @@ export declare const TASK_HISTORY_AUDIT_SPEC: Readonly<{
         };
     };
 }>;
+/** Serialized records of the retired single-text workflow; these types grant no execution capability. */
+export type TaskFirstTextReason = 'not-live' | 'not-ready' | 'busy' | 'leased' | 'seeded-session' | 'not-empty' | 'unprovable-projection' | 'model-not-selected' | 'adapter-unsupported' | 'model-unprepared' | 'model-stale' | 'observation-stale' | 'preparation-cancelled' | 'preparation-failed';
+export interface TaskFirstTextConfiguration {
+    readonly reasoningEffort?: string;
+    readonly temperature?: number;
+    readonly maxTokens?: number;
+    readonly stopSequenceCount: number;
+}
+export interface TaskFirstTextModelSelection {
+    readonly provider: string;
+    readonly model: string;
+    readonly selectionRevision: number;
+    readonly configuration: TaskFirstTextConfiguration;
+    readonly preparation: {
+        readonly supported: false;
+        readonly reason: 'adapter-unsupported';
+    } | {
+        readonly supported: true;
+        readonly preparationEffects: {
+            readonly filesystem: boolean;
+            readonly credentials: boolean;
+            readonly network: boolean;
+            readonly cache: boolean;
+        };
+    };
+}
+export interface TaskFirstTextModelSummary {
+    readonly version: 1;
+    readonly provider: string;
+    readonly model: string;
+    readonly selectionRevision: number;
+    readonly configurationDigest: string;
+    readonly configuration: TaskFirstTextConfiguration;
+    readonly defaults: TaskFirstTextConfiguration;
+    readonly adapterDefaults: {
+        readonly reasoningEffort?: true;
+        readonly maxTokens?: true;
+    };
+    readonly versions: {
+        readonly metadata: number;
+        readonly configuration: number;
+        readonly connection: number;
+        readonly authenticationIdentity: number;
+    };
+    readonly contextWindow?: number;
+}
+export interface TaskFirstTextReviewSummary {
+    readonly version: 1;
+    readonly purpose: 'first-text-once';
+    readonly agentId: string;
+    readonly sessionId: string;
+    readonly sequence: number;
+    readonly surfaceContentGeneration: number;
+    readonly fixedSystemVersion: 1;
+    readonly scope: {
+        readonly fixedSystem: true;
+        readonly soleHumanText: true;
+        readonly priorMessages: false;
+        readonly sources: false;
+        readonly tools: false;
+    };
+    readonly model: TaskFirstTextModelSummary;
+}
+/** The official host supplies no legacy execution observations or leases. */
+export type TaskFirstTextObservation = never;
+export type TaskFirstTextModelObservation = never;
+export type TaskFirstTextLease = never;
 export interface TaskFirstTextSupport {
     readonly available: boolean;
     readonly ready: boolean;
     readonly valid: boolean;
     readonly owner: object | null;
     readonly sequence: number;
-    readonly reason: SealedFirstTextReason | 'sdk-not-ready' | null;
-    readonly observation: SealedFirstTextObservation | null;
-    readonly modelObservation: SealedFirstTextModelObservation | null;
-    readonly model: SealedFirstTextModelSummary | null;
-    readonly native: SealedFirstTextReviewSummary | null;
-    readonly preparation: SealedFirstTextModelSelection | null;
+    readonly reason: TaskFirstTextReason | 'sdk-not-ready' | null;
+    readonly observation: TaskFirstTextObservation | null;
+    readonly modelObservation: TaskFirstTextModelObservation | null;
+    readonly model: TaskFirstTextModelSummary | null;
+    readonly native: TaskFirstTextReviewSummary | null;
+    readonly preparation: TaskFirstTextModelSelection | null;
 }
 export interface TaskFirstTextState extends Omit<TaskHistoricalState, 'purpose' | 'reason' | 'receipts'> {
     readonly purpose: 'first-text-once';
-    readonly reason: TaskHistoryReason | SealedFirstTextReason | null;
+    readonly reason: TaskHistoryReason | TaskFirstTextReason | null;
     readonly newInputAllowed: boolean;
-    readonly model: SealedFirstTextModelSummary | null;
-    readonly native: SealedFirstTextReviewSummary | null;
-    readonly preparation: SealedFirstTextModelSelection | null;
+    readonly model: TaskFirstTextModelSummary | null;
+    readonly native: TaskFirstTextReviewSummary | null;
+    readonly preparation: TaskFirstTextModelSelection | null;
     readonly receipts: readonly TaskFirstTextReceipt[];
 }
 export type TaskFirstTextReceipt = (TaskHistoryReceipt & {
@@ -334,7 +400,7 @@ export interface TaskFirstTextAuditEvent extends Omit<TaskHistoryAuditEvent, 'sc
         readonly root: string;
         readonly digest: string;
         readonly consumedCount: number;
-        readonly model: Pick<SealedFirstTextModelSummary, 'provider' | 'model' | 'selectionRevision' | 'configurationDigest'>;
+        readonly model: Pick<TaskFirstTextModelSummary, 'provider' | 'model' | 'selectionRevision' | 'configurationDigest'>;
     } | null;
 }
 export declare const TASK_FIRST_TEXT_AUDIT_SPEC: Readonly<{
@@ -383,10 +449,10 @@ export interface TaskAccess {
     noteFirstTextModelRequest(permit: TaskFirstTextPermit, count: 0 | 1): void;
     completeFirstTextModel(permit: TaskFirstTextPermit): void;
     firstTextObservation(permit: TaskFirstTextPermit): {
-        readonly observation: SealedFirstTextObservation;
-        readonly modelObservation: SealedFirstTextModelObservation;
+        readonly observation: TaskFirstTextObservation;
+        readonly modelObservation: TaskFirstTextModelObservation;
     };
-    retainFirstTextLease(permit: TaskFirstTextPermit, lease: SealedFirstTextLease): void;
+    retainFirstTextLease(permit: TaskFirstTextPermit, lease: TaskFirstTextLease): void;
     drainFirstTextLease(permit: TaskFirstTextPermit): void;
     finishFirstText(permit: TaskFirstTextPermit, result: {
         outcome: TaskHistoryRunOutcome;

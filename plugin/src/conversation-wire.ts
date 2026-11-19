@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import type { InvocationDescriptor } from '@deepseek-ai/dsh-typert-protocol';
 import type { JsonObject } from './wire.js';
 import type { TaskAccessState, TaskWorkspace, TaskWorkspaceGrant, TaskDirectoryGrant, TaskSourceQuery, TaskFileRequest, TaskHistoricalState, TaskHistoricalResult, TaskHistoryReceipt, TaskFirstTextState, TaskFirstTextResult, TaskFirstTextReceipt, TaskFirstTextModelRequest } from './task-access.js';
-import type { SealedFirstTextModelSelection, SealedFirstTextModelSummary } from '@deepseek-ai/dsh-agent';
+import type { TaskFirstTextModelSelection, TaskFirstTextModelSummary } from './task-access.js';
 import type { WeixinUpdatesDiagnostic } from './weixin-api.js';
 
 export type ConversationErrorCode =
@@ -122,8 +122,8 @@ export interface TaskConversationWire {
   readonly firstTextReviewResultSchema: z.ZodType<{ readonly firstTextContext: TaskFirstTextState; readonly reviewId: string; readonly expiresAt: number }>;
   readonly firstTextResultSchema: z.ZodType<TaskFirstTextResult>;
   readonly firstTextReceiptSchema: z.ZodType<TaskFirstTextReceipt>;
-  readonly firstTextModelSchema: z.ZodType<SealedFirstTextModelSummary>;
-  readonly firstTextSelectionSchema: z.ZodType<SealedFirstTextModelSelection>;
+  readonly firstTextModelSchema: z.ZodType<TaskFirstTextModelSummary>;
+  readonly firstTextSelectionSchema: z.ZodType<TaskFirstTextModelSelection>;
   readonly firstTextModelRequestSchema: z.ZodType<TaskFirstTextModelRequest>;
   readonly sourceQuerySchema: z.ZodType<TaskSourceQuery>;
   readonly fileQuerySchema: z.ZodType<Extract<TaskFileRequest, { readonly action: 'list' | 'read' }>>;

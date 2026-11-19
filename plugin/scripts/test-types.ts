@@ -312,7 +312,7 @@ TASK_WIRE.historicalContextSchema.safeParse(historyState);
 void [historyReview, historyGrant, historyShare, historyReply, historyUiReview, historyUiRun, historyUiRevoke, forgedHistoryPermit, badHistoryShare, badHistoryRun, badHistoricalLoop];
 
 import type { TaskFirstTextState, TaskFirstTextPermit, TaskFirstTextResult, TaskFirstTextModelRequest, TaskFirstTextReceipt } from 'dsh-wechat-ro/task-access';
-import type { SealedFirstTextModelObservation, SealedFirstTextObservation } from '@deepseek-ai/dsh-agent';
+import type { TaskFirstTextModelObservation, TaskFirstTextObservation } from 'dsh-wechat-ro/task-access';
 const firstState: TaskFirstTextState = taskData.getFirstTextState('synthetic-task');
 const firstModelChoice: TaskFirstTextModelRequest = { provider: 'synthetic', model: 'synthetic-model', confirmation: 'select-first-task-model' };
 const firstModelPreparation: TaskFirstTextModelRequest = { ...firstModelChoice, selectionRevision: 1, preparationConfirmation: 'prepare-first-task-model-metadata' };
@@ -348,9 +348,9 @@ taskSession.replyHistorical('synthetic-task', 'Synthetic text', { messageId: 'sy
 // @ts-expect-error First-text runtime authority cannot be reconstructed from JSON.
 const forgedFirstPermit: TaskFirstTextPermit = { purpose: 'first-text-once', sessionId: 'synthetic-task', consentId: 'synthetic-consent', runId: 'synthetic-run', signal: new AbortController().signal };
 // @ts-expect-error SDK observations are instance-owned capabilities, not empty JSON objects.
-const forgedFirstObservation: SealedFirstTextObservation = {};
+const forgedFirstObservation: TaskFirstTextObservation = {};
 // @ts-expect-error SDK model observations cannot be reconstructed from public summaries.
-const forgedFirstModelObservation: SealedFirstTextModelObservation = {};
+const forgedFirstModelObservation: TaskFirstTextModelObservation = {};
 // @ts-expect-error First-text polling cannot borrow historical authorization.
 const badFirstUiRun: TaskConversationAction = { kind: 'task', action: 'pollTextOnce', sessionId: 'synthetic-task', historyConsentId: 'synthetic-consent', allowSharedContext: true, confirmation: 'poll-one-text-reply-with-first-task-text' };
 // @ts-expect-error First-text authority never enables continuous polling.

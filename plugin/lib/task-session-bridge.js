@@ -4,8 +4,6 @@ import { createNativeSessionBridge } from './native-session-bridge.js';
 import { SessionBridgeError } from './session-bridge-agent.js';
 import { TASK_PRESET_ID, isTaskSessionId } from './task-access.js';
 import { bindTaskSessionData, assertTaskSessionHistory, installTaskSessionPolicy, hasTaskSessionPolicy, inspectTaskSessionHistory } from './task-session-agent.js';
-import { WEIXIN_LIMITS } from './weixin-http.js';
-import { TASK_WIRE } from './conversation-wire.js';
 
 export const TASK_SESSION_INFO = Object.freeze({ agentPreset: TASK_PRESET_ID, sandboxMode: 'workspace-write', messageSource: 'wechat-task-weixin',
   defaultTimeoutMs: 120000, maxTimeoutMs: 300000, maxInputBytes: 16384, maxReplyBytes: 16384 });
@@ -15,90 +13,11 @@ export function createTaskSessionBridge(ctx, options = {}) {
   const data = options.data, timeoutMs = options.timeoutMs ?? TASK_SESSION_INFO.defaultTimeoutMs;
   if (!data || !['grantWorkspace', 'getWorkspace', 'revokeAll', 'prepare', 'query', 'file', 'canShare', 'getState', 'captureDeliverables', 'prepareDelivery', 'releaseDeliveries'].every(name => typeof data[name] === 'function')
     || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > TASK_SESSION_INFO.maxTimeoutMs) fail('invalid-options');
-  const cores = new Map(), dataClaims = new Map(), historyBindings = new Map(), firstBindings = new Map(), controllers = new Set(), operations = new Set();
+  const cores = new Map(), dataClaims = new Map(), controllers = new Set(), operations = new Set();
   let disposed = false, disposal;
   const check = signal => { if (disposed) fail('disposed'); if (signal?.aborted) fail('aborted'); };
   const service = name => ctx.get ? ctx.get(name) : ctx[name];
-  const historyCapable = ['bindHistorySupport', 'verifyHistoricalText', 'bindHistoricalInput', 'noteHistoricalModelRequest', 'completeHistoricalModel']
-    .every(name => typeof data[name] === 'function');
-  function releaseHistoryBinding(id) {
-    const binding = historyBindings.get(id);
-    if (!binding) return;
-    historyBindings.delete(id); binding.release();
-  }
-  function bindHistoryAgent(id, agent, core) {
-    if (!historyCapable) return;
-    const capability = agent.sealedHistory, previous = historyBindings.get(id);
-    if (previous?.agent === agent && previous.capability === capability) return;
-    releaseHistoryBinding(id);
-    const release = data.bindHistorySupport(id, () => {
-      if (disposed || service('agents')?.get(SessionId(id)) !== agent || !core.isPrepared(id)) return { available: false, ready: false, owner: null };
-      const available = capability?.version === 1 && typeof capability.probe === 'function' && typeof capability.acquire === 'function';
-      let ready = false;
-      try { ready = available && capability.probe().supported === true; } catch { /* unavailable acquisition stays closed */ }
-      return { available, ready, owner: agent, sequence: agent.session.seq };
-    });
-    historyBindings.set(id, { agent, capability, release });
-  }
-  const firstCapable = ['bindFirstTextSupport', 'invalidateTextModel', 'verifyFirstText', 'bindFirstTextInput', 'noteFirstTextModelRequest', 'completeFirstTextModel', 'firstTextObservation', 'retainFirstTextLease', 'drainFirstTextLease']
-    .every(name => typeof data[name] === 'function');
-  function releaseFirstBinding(id) {
-    const binding = firstBindings.get(id);
-    if (!binding) return;
-    firstBindings.delete(id); binding.release();
-  }
-  function bindFirstAgent(id, agent, core) {
-    if (!firstCapable) return;
-    const capability = agent.sealedFirstText, previous = firstBindings.get(id);
-    if (previous?.agent === agent && previous.capability === capability) return;
-    releaseFirstBinding(id);
-    const binding = { agent, capability, observation: null, modelObservation: null, selection: null, release: null };
-    binding.release = data.bindFirstTextSupport(id, () => {
-      const unavailable = { available: false, ready: false, valid: false, owner: null, sequence: agent.session.seq,
-        reason: 'sdk-not-ready', observation: null, modelObservation: null, model: null, native: null, preparation: null };
-      if (disposed || service('agents')?.get(SessionId(id)) !== agent || !core.isPrepared(id)) return unavailable;
-      const available = capability?.version === 1 && ['probe', 'selectModel', 'prepareModel', 'observeModel', 'verifyModel', 'observe', 'summary', 'verify', 'acquire'].every(name => typeof capability[name] === 'function');
-      if (!available) return unavailable;
-      const model = capability.observeModel(), support = capability.probe();
-      const value = { ...unavailable, available: true, owner: agent, preparation: model.selection ?? binding.selection };
-      if (!model.supported) {
-        binding.observation = null; binding.modelObservation = null;
-        const nativeRefusal = support.supported === false && ['not-live', 'not-ready', 'busy', 'leased', 'seeded-session', 'not-empty', 'unprovable-projection'].includes(support.reason);
-        return { ...value, reason: nativeRefusal ? support.reason : model.reason };
-      }
-      const safeModel = TASK_WIRE.firstTextModelSchema.parse(model.summary);
-      if (binding.selection?.selectionRevision !== safeModel.selectionRevision) binding.selection = null;
-      value.preparation = binding.selection;
-      value.model = safeModel;
-      if (!capability.verifyModel(model.observation)) return { ...value, reason: 'model-stale' };
-      if (binding.modelObservation !== model.observation || !binding.observation || !capability.verify(binding.observation)) {
-        binding.observation = null; binding.modelObservation = model.observation;
-        const observed = capability.observe(model.observation);
-        if (!observed.supported) return { ...value, reason: observed.reason };
-        binding.observation = observed.observation;
-      }
-      const native = capability.summary(binding.observation);
-      const valid = Boolean(native && native.sessionId === id && native.agentId === id && capability.verify(binding.observation) && capability.verifyModel(model.observation));
-      return { ...value, ready: valid && support.supported === true, valid, reason: valid ? support.supported ? null : support.reason : 'observation-stale',
-        observation: binding.observation, modelObservation: model.observation, native: native ?? null };
-    });
-    firstBindings.set(id, binding);
-  }
-  async function finishTextReply({ session, turn, text, afterSeq, historyPermit }) {
-    let currentTurn = null;
-    for (const event of session.snapshotEvents()) {
-      if (event.seq <= afterSeq) continue;
-      if (event.type === 'turn/start') currentTurn = event.data.turn;
-      if (currentTurn !== turn) continue;
-      if (['tool/call', 'tool/result', 'deliverables/presented'].includes(event.type)
-        || event.type === 'assistant/message' && event.data.message?.content?.some(block => block.type === 'tool-call')) fail('not-completed');
-      if (event.type === 'turn/end' && event.data.turn === turn) currentTurn = null;
-    }
-    if (!text) fail('no-reply');
-    if (historyPermit.purpose === 'first-text-once') data.completeFirstTextModel(historyPermit);
-    else data.completeHistoricalModel(historyPermit);
-    return Object.freeze({ text, deliverables: [] });
-  }
+
   function coreFor(sessionId) {
     let core = cores.get(sessionId);
     if (!core) {
@@ -110,22 +29,10 @@ export function createTaskSessionBridge(ctx, options = {}) {
           check();
           const release = bindTaskSessionData(...args), claim = Symbol('task-data-lease');
           dataClaims.set(args[0], claim);
-          return () => { if (dataClaims.get(args[0]) === claim) { dataClaims.delete(args[0]); releaseHistoryBinding(args[0]); releaseFirstBinding(args[0]); } release(); };
+          return () => { if (dataClaims.get(args[0]) === claim) { dataClaims.delete(args[0]); } release(); };
         },
         assertHistory: assertTaskSessionHistory, install: installTaskSessionPolicy,
         hasPolicy: hasTaskSessionPolicy, inspectHistory: inspectTaskSessionHistory,
-        historical: historyCapable ? Object.freeze({
-          verify: permit => data.verifyHistoricalText(permit),
-          bindInput: (permit, inputId, turn) => data.bindHistoricalInput(permit, inputId, turn),
-          recordRequests: (permit, count) => data.noteHistoricalModelRequest(permit, count),
-          finishReply: finishTextReply,
-        }) : undefined,
-        firstText: firstCapable ? Object.freeze({
-          verify: permit => data.verifyFirstText(permit), bindInput: (permit, inputId, turn) => data.bindFirstTextInput(permit, inputId, turn),
-          recordRequests: (permit, count) => data.noteFirstTextModelRequest(permit, count), observation: permit => data.firstTextObservation(permit),
-          retainLease: (permit, lease) => data.retainFirstTextLease(permit, lease), drainLease: permit => data.drainFirstTextLease(permit),
-          maxOutputBytes: WEIXIN_LIMITS.maxTextBytes, finishReply: finishTextReply,
-        }) : undefined,
         async finishReply({ session, turn, text, afterSeq }, signal) {
           let currentTurn = null;
           const calls = new Set(), succeeded = new Set(), declarations = [];
@@ -205,8 +112,6 @@ export function createTaskSessionBridge(ctx, options = {}) {
         await entity.attachSession(SessionId(sessionId));
         check(signal);
       }
-      bindHistoryAgent(sessionId, agent, core);
-      bindFirstAgent(sessionId, agent, core);
     } catch (error) {
       if (!dataClaims.has(sessionId) && cores.get(sessionId) === core) { cores.delete(sessionId); await core.dispose(); }
       throw error;
@@ -217,41 +122,8 @@ export function createTaskSessionBridge(ctx, options = {}) {
     const state = data.getState(sessionId);
     return cores.get(sessionId)?.isPrepared(sessionId) === true && state.prepared && state.historyKnown;
   }
-  function selectFirstTextModel(sessionId, raw, outerSignal) {
-    check(outerSignal);
-    const request = TASK_WIRE.firstTextModelRequestSchema.parse(raw), binding = firstBindings.get(sessionId);
-    if (!firstCapable || !isPrepared(sessionId) || !binding || binding.capability?.version !== 1
-      || typeof binding.capability.selectModel !== 'function' || typeof binding.capability.prepareModel !== 'function') fail('not-prepared');
-    if (binding.preparing) fail('busy');
-    const config = { provider: request.provider, model: request.model,
-      ...(request.reasoningEffort === undefined ? {} : { reasoningEffort: request.reasoningEffort }),
-      ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
-      ...(request.maxTokens === undefined ? {} : { maxTokens: request.maxTokens }) };
-    if (request.preparationConfirmation !== undefined && (!binding.selection || binding.selection.selectionRevision !== request.selectionRevision
-      || !binding.requestConfig || Object.keys(config).length !== Object.keys(binding.requestConfig).length
-      || Object.keys(config).some(key => config[key] !== binding.requestConfig[key]) || binding.selection.preparation.supported !== true)) fail('invalid-input');
-    const control = new AbortController(); controllers.add(control);
-    const signal = AbortSignal.any([control.signal, AbortSignal.timeout(timeoutMs), ...(outerSignal ? [outerSignal] : [])]);
-    binding.preparing = true;
-    return track((async () => {
-      try {
-        data.invalidateTextModel(sessionId); binding.observation = null; binding.modelObservation = null;
-        if (request.preparationConfirmation === undefined) {
-          binding.selection = TASK_WIRE.firstTextSelectionSchema.parse(binding.capability.selectModel(config));
-          binding.requestConfig = Object.freeze(config);
-        } else await binding.capability.prepareModel({ selectionRevision: request.selectionRevision, signal });
-        check(signal);
-        if (!isPrepared(sessionId) || firstBindings.get(sessionId) !== binding) fail('not-prepared');
-        return { firstTextContext: TASK_WIRE.firstTextContextSchema.parse(data.getFirstTextState(sessionId)) };
-      } catch (error) { throw error instanceof SessionBridgeError ? error : new SessionBridgeError(signal.aborted ? 'aborted' : 'archive-denied'); }
-      finally { binding.preparing = false; controllers.delete(control); }
-    })());
-  }
-  function replyFirstText(sessionId, text, metadata, signal, permit) {
-    check(signal);
-    if (!firstCapable || !isPrepared(sessionId) || permit?.sessionId !== sessionId || data.verifyFirstText(permit) !== true) fail('archive-denied');
-    return cores.get(sessionId).reply(sessionId, text, metadata, signal, permit);
-  }
+  async function selectFirstTextModel(_sessionId, _request, signal) { check(signal); fail('not-prepared'); }
+  function replyFirstText(_sessionId, _text, _metadata, signal, _permit) { check(signal); fail('archive-denied'); }
   async function replyWithDeliverables(sessionId, text, metadata, signal) {
     await ensure(sessionId, signal);
     return cores.get(sessionId).reply(sessionId, text, metadata, signal);
@@ -270,18 +142,11 @@ export function createTaskSessionBridge(ctx, options = {}) {
     data.releaseDeliveries(sessionId, result.deliverables.map(file => file.reference));
     return result.text;
   }
-  function replyHistorical(sessionId, text, metadata, signal, permit) {
-    check(signal);
-    if (!historyCapable || !isPrepared(sessionId) || permit?.sessionId !== sessionId || data.verifyHistoricalText(permit) !== true) fail('archive-denied');
-    // Never resume, refresh sources, or capture deliveries for a historical run.
-    return cores.get(sessionId).reply(sessionId, text, metadata, signal, permit);
-  }
+  function replyHistorical(_sessionId, _text, _metadata, signal, _permit) { check(signal); fail('archive-denied'); }
   function dispose() {
     if (disposal) return disposal;
     disposed = true;
     for (const control of controllers) control.abort();
-    for (const id of historyBindings.keys()) releaseHistoryBinding(id);
-    for (const id of firstBindings.keys()) releaseFirstBinding(id);
     for (const id of dataClaims.keys()) data.revokeAll(id);
     dataClaims.clear();
     disposal = (async () => { await Promise.allSettled([...cores.values()].map(core => core.dispose())); await Promise.allSettled([...operations]); })();

@@ -1,5 +1,3 @@
-import { homedir as desktopHome } from 'node:os';
-import { resolve as desktopPath } from 'node:path';
 // Controlled real public-SDK tests. Each native log is in a fresh synthetic tmp
 // directory. No profile, WeChat source, account, browser, credential or network is used.
 import test, { after } from 'node:test';
@@ -9,7 +7,7 @@ import { createRequire } from 'node:module';
 import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context } from '@deepseek-ai/cordis';
 import Loader from '@deepseek-ai/cordis-plugin-loader';
@@ -19,6 +17,7 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session';
 import SessionProjections from '@deepseek-ai/dsh-session-projection';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import ToolRuntime from '@deepseek-ai/dsh-tools';
+import * as NativeToolExecutorPlugin from '@deepseek-ai/dsh-tool-executor-native';
 import AgentRegistry from '@deepseek-ai/dsh-agent';
 import AgentLoop from '@deepseek-ai/dsh-agent-loop';
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model';
@@ -34,13 +33,11 @@ import { createConversationRuntime } from 'dsh-wechat-ro/conversation-controller
 
 // The development plugin links most public SDK packages. Registry/presentation
 // are host dependencies, so use their public built entrypoints, not private src.
-const checkout = process.env.DSH_CHECKOUT ?? '/REPLACE_WITH_DSH_CHECKOUT';
-const publicSdk = relative => pathToFileURL(join(checkout, relative)).href;
-const { default: AgentPresets } = await import(publicSdk('packages/preset/agent-preset-registry/lib/index.js'));
-const { Storage, UNIT_NAME_RE } = await import(publicSdk('packages/storage/storage/lib/index.js'));
-const JsonStorage = await import(publicSdk('packages/storage/storage-json/lib/index.js'));
-const StorageDomain = await import(publicSdk('packages/storage/storage-domain/lib/index.js'));
-const { load: parseYaml } = createRequire(publicSdk('package.json'))('js-yaml');
+const { default: AgentPresets } = await import('@deepseek-ai/dsh-agent-preset-registry');
+const { Storage, UNIT_NAME_RE } = await import('@deepseek-ai/dsh-storage');
+const JsonStorage = await import('@deepseek-ai/dsh-storage-json');
+const StorageDomain = await import('@deepseek-ai/dsh-storage-domain');
+const { load: parseYaml } = createRequire(import.meta.resolve('@deepseek-ai/cordis-plugin-loader'))('js-yaml');
 const syntheticRoots = new Set(), liveContexts = new Set();
 after(async () => {
   for (const ctx of liveContexts) await ctx.fiber.dispose();
@@ -134,8 +131,8 @@ async function fixture(script = [], existingRoot) {
     const modules = join(root, 'node_modules');
     assert.equal(resolve(modules), join(root, 'node_modules'));
     await mkdir(join(modules, '@deepseek-ai'), { recursive: true });
-    await symlink(join(checkout, 'packages/preset/agent-preset'), join(modules, '@deepseek-ai/dsh-agent-preset'), 'dir');
-    await symlink(join(checkout, 'packages/core/agent-tool-presentation'), join(modules, '@deepseek-ai/dsh-agent-tool-presentation'), 'dir');
+    await symlink(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-agent-preset/package.json')), join(modules, '@deepseek-ai/dsh-agent-preset'), 'dir');
+    await symlink(dirname(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-agent-tool-presentation/package.json')), join(modules, '@deepseek-ai/dsh-agent-tool-presentation'), 'dir');
     await symlink(fileURLToPath(new URL('../', import.meta.url)), join(modules, 'dsh-wechat-ro'), 'dir');
   }
   const ctx = new Context();
@@ -151,7 +148,7 @@ async function fixture(script = [], existingRoot) {
   await ctx.plugin(SessionStore);
   await ctx.plugin(SessionProjections);
   await ctx.plugin(SystemPrompt);
-  await ctx.plugin(ToolRuntime);
+  await ctx.plugin(ToolRuntime); await ctx.plugin(NativeToolExecutorPlugin);
   await ctx.plugin(AgentRegistry);
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root });
   await ctx.plugin(JsonlPersistence, { root, compression: 'none' });
@@ -369,7 +366,7 @@ test('real SDK: internal selected cwd persists and restores without relaxing rea
     assert.equal(createdLog.header.isSeeded, false);
     assert.equal(createdLog.header.parentSession, undefined);
     assert.equal(core.hasDataHistory(sessionId), false);
-    for (const rejected of [desktopPath(desktopHome(), 'Documents/xwechat_files'), desktopPath(desktopHome(), 'Documents/xwechat_files/unopened-synthetic')]) {
+    for (const rejected of ['/home/keer/Documents/xwechat_files', '/home/keer/Documents/xwechat_files/unopened-synthetic']) {
       await assert.rejects(core.createConversation(f.context.id, undefined, rejected), code('invalid-input'));
     }
     assert.deepEqual(mintedIds, [sessionId]);
@@ -473,7 +470,7 @@ test('real SDK: one owned native log, sequential continuity, global denial and d
     assert.ok(f.adapter.requests.every(request => request.tools.map(tool => tool.name).join(',') === 'wechat_archive'));
     assert.ok(f.adapter.requests.every(request => !textOf(request.messages.filter(message => message.role === 'system')).includes('SYNTHETIC_BROAD_ROOT_PROMPT')));
     assert.equal(f.ctx.sandboxPolicy.resolve({ session: agent.session }).mode, 'read-only');
-    const denied = await f.ctx.tools.execute({ name: 'synthetic_global', arguments: {}, callId: ToolCallId('global-probe'), agent, signal: new AbortController().signal });
+    const denied = await executeNativeTool(f.ctx, { name: 'synthetic_global', arguments: {}, callId: ToolCallId('global-probe'), agent, signal: new AbortController().signal });
     assert.equal(f.globalCalls.length, 0);
     assert.ok(JSON.stringify(denied).includes('error') || JSON.stringify(denied).includes('denied'));
     await assert.rejects(bridge.reply(sessionId, 'duplicate', { messageId: 'm-1' }), code('already-processed'));
@@ -515,7 +512,11 @@ test('real SDK: GUI owns resume, Root safely borrows and never disposes the GUI 
   } finally { await f.dispose(); }
 });
 
-const execute = (f, agent, args, name = 'wechat_archive') => f.ctx.tools.execute({
+async function executeNativeTool(ctx, { agent, signal, callId, name, arguments: args }) {
+  const batch = await ctx.tools.execute({ agent, signal, calls: [{ type: 'tool-call', id: callId, name, arguments: JSON.stringify(args) }] });
+  return batch.results[0].result;
+}
+const execute = (f, agent, args, name = 'wechat_archive') => executeNativeTool(f.ctx, {
   name, arguments: args, callId: ToolCallId(`probe-${randomUUID()}`), agent, signal: new AbortController().signal,
 });
 const held = (started, release, text) => async function*(request) {

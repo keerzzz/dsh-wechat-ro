@@ -325,7 +325,7 @@ function createConversationWire(z) {
     // ------------------------------------------------------------ wire contract
 
     const PACKAGE_NAME = 'dsh-wechat-ro'
-    const CLIENT_VERSION = '0.2.0'
+    const CLIENT_VERSION = '0.2.1'
     const DATA_SIDEBAR_REVISION = 'current-sse-data-v1'
     const INDEX_SIDEBAR_REVISION = 'index-single-sidebar-v1'
     const REFERENCE_MAX_ROWS = 8
@@ -1234,9 +1234,6 @@ function createConversationWire(z) {
         h('header', null, h('h2', null, t('autoTitle')), h('p', { className: 'wx-note' }, t('autoIntro'))),
         setup?.root ? h('div', { className: 'wx-directory' }, h('span', { className: 'wx-note' }, t('autoDirectory')), h('p', null, setup.root))
           : h('p', { className: 'wx-note' }, t('autoDirectoryNeeded')),
-        h('div', { 'data-wechat-native-model': requestedId, style: { display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 } },
-          h('span', { className: 'wx-note' }, props.taskText('nativeModelTitle')),
-          h(TaskModelSessionArea, { ...props, key: requestedId, sessionId: requestedId, t: props.taskText, locked: busy || closed })),
         label ? h('div', { className: 'wx-status', role: 'status', 'data-connected': phase === 'running' && !unknown && !recoveryBlocked }, t(label)) : null,
         phase === 'history-required' ? h('p', { className: 'wx-note' }, t('autoHistoryHint')) : null,
         recoveryRequired ? h('p', { className: 'wx-note' }, t('recoveryHint')) : null,
@@ -1499,7 +1496,6 @@ function createConversationWire(z) {
               t(textOnceResult.replied === 1 ? 'textOnceAccepted' : textOnceResult.replied === 0 ? 'textOnceEmpty' : 'textOnceUnknown'),
               Number.isSafeInteger(textOnceResult.remaining) && textOnceResult.remaining > 0
                 ? h('p', { style: { margin: 0 } }, t('textOnceRemaining', { remaining: textOnceResult.remaining })) : null) : null),
-          !compact ? h(TaskModelSessionArea, { ...props, t: tt, errorText: t, textControls: true }) : null,
           h('details', { 'data-wechat-updates-diagnostic': sessionId },
             h('summary', { style: { cursor: 'pointer', fontWeight: 500 } }, tt('updatesDiagnosticTitle')),
             h('div', { style: S.section },
@@ -1533,193 +1529,7 @@ function createConversationWire(z) {
             h(ConversationConsent, { checked: forgetConsent, onChange: setForgetConsent, disabled: busy }, t('forgetConsent')),
             h(ConversationButton, { disabled: busy || !forgetConsent, style: { color: 'var(--dsw-alias-state-error-primary)' }, onClick: async () => { const response = await invoke({ action: 'forgetPairing', confirmation: 'forget-local-credentials' }); if (response) { setForgetConsent(false); setExpectedOwner(null); setQr(null) } } }, t('forget')))))) : null))
     }
-    function newHistoryRevokeId() {
-      const crypto = window.crypto
-      if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID()
-      if (typeof crypto?.getRandomValues !== 'function') return null
-      const bytes = crypto.getRandomValues(new Uint8Array(16))
-      bytes[6] = bytes[6] & 15 | 64; bytes[8] = bytes[8] & 63 | 128
-      const hex = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
-      return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-')
-    }
-    function TaskModelSessionArea(props) {
-      const [reference, setReference] = React.useState(null)
-      const [failed, setFailed] = React.useState(false)
-      React.useEffect(() => {
-        const controller = new AbortController()
-        const signal = AbortSignal.any([controller.signal, props.tabSignal, ...(props.lifecycleSignal ? [props.lifecycleSignal] : [])])
-        let retained
-        setReference(null); setFailed(false)
-        try { retained = props.retainModelSession(props.sessionId, signal) }
-        catch { setFailed(true); return () => controller.abort() }
-        retained.ready.then(() => { if (!signal.aborted) setReference(retained) }, () => { if (!signal.aborted) setFailed(true) })
-        return () => { controller.abort(); retained.release() }
-      }, [props.sessionId, props.controller.generation, props.tabSignal, props.lifecycleSignal, props.retainModelSession])
-      if (!reference) return h('p', { role: 'status', style: S.rowMeta }, props.t(failed ? 'nativeModelUnavailable' : 'nativeModelLoading'))
-      return h(props.SessionProvider, { session: reference }, props.textControls
-        ? props.renderSlot('wechat.task.text-controls', {
-          controller: props.controller, tabSignal: props.tabSignal, lifecycleSignal: props.lifecycleSignal, errorText: props.errorText,
-        })
-        : props.renderFactorySlot('conversation.model-selection', { locked: props.locked },
-          { fallback: h('p', { role: 'status', style: S.rowMeta }, props.t('nativeModelUnavailable')) }))
-    }
-    function TaskHistoricalContextControls(props) {
-      const { t, sessionId, controller, tabSignal } = props
-      const state = controller.snapshot.value, busy = controller.action.pending
-      const prepared = controller.snapshot.status === 'ready' && state?.prepared === true
-      const [purpose, setPurpose] = React.useState('history-text-once')
-      const first = purpose === 'first-text-once', contextName = first ? 'firstTextContext' : 'historicalContext'
-      const contextSchema = first ? taskWire.firstTextContextSchema : taskWire.historicalContextSchema
-      const [opened, setOpened] = React.useState(false), [history, setHistory] = React.useState(null), [review, setReview] = React.useState(null)
-      const [approval, setApproval] = React.useState(false), [sharing, setSharing] = React.useState(false), [runConsent, setRunConsent] = React.useState(false)
-      const [newInputConsent, setNewInputConsent] = React.useState(false)
-      const nativeModels = props.useNativeModels(value => value)
-      const nativeModel = nativeModels.groups.find(group => group.id === nativeModels.current?.provider)?.models.find(model => model.id === nativeModels.current?.model)
-      const [maxTokens, setMaxTokens] = React.useState(''), [modelPreparation, setModelPreparation] = React.useState(false)
-      const modelDraft = { provider: nativeModels.current?.provider || '', model: nativeModels.current?.model || '',
-        reasoningEffort: nativeModels.current?.reasoningEffort ?? nativeModel?.reasoning?.defaultEffort ?? '', maxTokens }
-      const [result, setResult] = React.useState(null), [error, setError] = React.useState(null)
-      const occurrence = React.useRef(0)
-      const clearConfirmations = () => { setReview(null); setApproval(false); setSharing(false); setRunConsent(false); setModelPreparation(false); setNewInputConsent(false) }
-      const reset = () => { occurrence.current++; setHistory(null); clearConfirmations(); setResult(null); setError(null) }
-      useTaskDraftLifecycle(props, controller, () => { reset(); setOpened(false); setPurpose('history-text-once'); setMaxTokens('') })
-      const nativeSelection = JSON.stringify(nativeModels.current)
-      React.useEffect(() => { occurrence.current++; clearConfirmations() }, [nativeSelection])
-      const boundary = state?.task ? JSON.stringify([state.prepared, state.task.historyKnown, state.task.workspace, state.task.sources]) : null
-      const previousBoundary = React.useRef(boundary)
-      React.useEffect(() => { if (boundary !== null && previousBoundary.current !== boundary) reset(); if (boundary !== null) previousBoundary.current = boundary }, [boundary])
-      React.useEffect(() => { if (controller.authorizationUnknown) clearConfirmations() }, [controller.authorizationUnknown])
-      const execute = async request => {
-        const token = ++occurrence.current
-        setError(null)
-        const response = await controller.invoke({ ...request, kind: 'task', sessionId })
-        if (token !== occurrence.current || tabSignal.aborted || props.lifecycleSignal?.aborted) return null
-        if (response?.result?.[contextName]) {
-          const parsed = contextSchema.safeParse(response.result[contextName])
-          if (!parsed.success) { reset(); setError('UNAVAILABLE'); return null }
-          setHistory(parsed.data)
-        } else if (response) { reset(); setError('UNAVAILABLE'); return null }
-        return response
-      }
-      const load = async check => {
-        clearConfirmations()
-        const response = await execute({ action: 'querySource', query: { action: 'status' } })
-        if (check && response?.result) {
-          if (response.result.historicalContext) controller.reconcileHistoricalReceipts(response.result.historicalContext)
-          if (response.result.firstTextContext) controller.reconcileHistoricalReceipts(response.result.firstTextContext)
-        }
-      }
-      const channel = state?.channel || {}, unknown = controller.authorizationUnknown && !(first && history?.newInputAllowed === true && controller.runOnlyUnknown)
-      const reason = controller.historyRunUnknown || history?.reason === 'run-unresolved' ? 'historyRunUnknown'
-        : controller.historyAuditUnknown || history?.reason === 'audit-unresolved' ? 'historyAuditUnknown'
-          : first && history?.reason === 'adapter-unsupported' ? 'firstAdapterUnsupported'
-            : first && ['model-not-selected', 'model-unprepared'].includes(history?.reason) ? 'firstModelMissing'
-              : first && ['not-empty', 'unprovable-projection', 'seeded-session'].includes(history?.reason) ? 'firstNotEmpty'
-                : first && ['model-stale', 'observation-stale'].includes(history?.reason) ? 'firstStale'
-                  : first && ['preparation-failed', 'preparation-cancelled'].includes(history?.reason) ? 'firstPrepFailed'
-                    : history?.reason === 'sdk-not-ready' ? first ? 'firstSdkRequired' : 'historySdkRequired' : history?.reason === 'unsupported-sources' ? 'historyUnsupportedSources'
-                      : history?.reason?.includes('expired') ? 'historyExpired' : history?.reason === 'history-unavailable' ? 'historyUnavailable'
-                        : history?.reason && !['not-required', 'sharing-required'].includes(history.reason) ? 'historyChanged' : null
-      const selectedControls = history?.preparation?.configuration || history?.model?.configuration
-      const matchesControls = configuration => configuration && (modelDraft.reasoningEffort || undefined) === configuration.reasoningEffort
-        && (modelDraft.maxTokens === '' ? undefined : Number(modelDraft.maxTokens)) === configuration.maxTokens
-      const modelMatches = !first || !history?.model || !modelDraft.provider && !modelDraft.model
-        || modelDraft.provider === history.model.provider && modelDraft.model === history.model.model && matchesControls(selectedControls)
-      const ready = prepared && !busy && !unknown && modelMatches && history?.supported === true && history.required === true
-      const closed = tabSignal.aborted || props.lifecycleSignal?.aborted || controller.generation === undefined
-      const mayPoll = ready && history.executable === true && !channel.messagingEnabled && !channel.automaticPolling
-        && !channel.pendingRecovery && !channel.recoveryStatusUnknown && channel.phase !== 'recovery-required'
-      const selectionRequest = { ...modelDraft, confirmation: 'select-first-task-model' }
-      if (!selectionRequest.reasoningEffort) delete selectionRequest.reasoningEffort
-      if (modelDraft.maxTokens === '') delete selectionRequest.maxTokens
-      else selectionRequest.maxTokens = Number(modelDraft.maxTokens)
-      const validSelection = first && taskWire.firstTextModelRequestSchema.safeParse(selectionRequest).success
-      const selection = first ? history?.preparation : null, effects = selection?.preparation.supported === true ? selection.preparation.preparationEffects : null
-      const maySelect = prepared && !busy && !closed && history && !['sdk-not-ready', 'not-live', 'not-ready', 'not-empty', 'unprovable-projection', 'seeded-session', 'busy', 'leased'].includes(history.reason)
-      const matchesSelection = selection && modelDraft.provider === selection.provider && modelDraft.model === selection.model
-        && matchesControls(selection.configuration)
-      const priorUnknownRuns = history?.receipts?.filter(value => value.operation === 'terminal' && value.runOutcome === 'unknown') || []
-      const priorRun = priorUnknownRuns.length === 1 ? priorUnknownRuns[0] : null
-      const mayAllowNewInput = first && prepared && !busy && !closed && modelMatches && history?.supported === true
-        && history.newInputAllowed !== true && controller.runOnlyUnknown && priorRun?.auditOutcome === 'committed'
-        && priorRun.modelRequestsReserved === 0 && priorRun.requestAccepted === 0
-        && !channel.messagingEnabled && !channel.automaticPolling && !channel.pendingRecovery && !channel.recoveryStatusUnknown && channel.phase !== 'recovery-required'
-      const label = (suffix, values) => t((first ? 'first' : 'history') + suffix, values)
-      return h('details', { open: opened, 'data-task-history': sessionId, 'data-task-text-purpose': purpose, onToggle: event => {
-        if (event.target !== event.currentTarget || event.currentTarget.open === opened) return
-        const next = event.currentTarget.open; setOpened(next); reset()
-        if (next && prepared && !busy) load(false)
-      } }, h('summary', { style: { cursor: 'pointer', fontWeight: 500 } }, label('Title')),
-      opened ? h('div', { style: S.section },
-        h(ConversationField, { label: t('textPurpose') }, h('select', { value: purpose, disabled: busy || closed, style: S.input, onChange: event => {
-          reset(); setPurpose(event.target.value)
-        } }, h('option', { value: 'history-text-once' }, t('historyPurpose')), h('option', { value: 'first-text-once' }, t('firstPurpose')))),
-        h('p', { style: S.rowMeta }, label('Hint')),
-        h('div', { style: S.toolbar }, h(ConversationButton, { disabled: busy || !prepared || closed, onClick: () => load(false) }, label('Status')),
-          h(ConversationButton, { disabled: busy || !prepared || closed, onClick: () => load(true) }, t('historyCheckReceipts'))),
-        error ? h('p', { role: 'alert', style: S.rowMeta }, props.errorText(error)) : null,
-        reason ? h('p', { role: 'status', style: S.rowMeta }, t(reason)) : null,
-        history?.receipts?.filter(value => value.operation === 'terminal').map(value => h('p', { key: value.runId,
-          role: 'status', 'data-task-text-receipt': true, style: S.rowMeta }, t('historyReceiptCounts', {
-          model: value.modelRequestsReserved ?? '?', accepted: value.requestAccepted ?? '?', outcome: value.runOutcome, audit: value.auditOutcome,
-        }))),
-        first && priorRun ? h('div', { style: S.section, 'data-task-new-input': sessionId },
-          h('p', { style: S.rowMeta }, t('firstNewInputHint')),
-          history.newInputAllowed === true ? h('p', { role: 'status', style: S.rowMeta }, t('firstNewInputAllowed')) : h(React.Fragment, null,
-            h(ConversationConsent, { checked: newInputConsent, onChange: setNewInputConsent, disabled: !mayAllowNewInput }, t('firstNewInputConsent')),
-            h(ConversationButton, { disabled: !mayAllowNewInput || !newInputConsent, onClick: async () => {
-              if (!mayAllowNewInput || !newInputConsent) return
-              clearConfirmations(); setResult(null)
-              await execute({ action: 'allowNewFirstText', priorRunId: priorRun.runId, priorConsentId: priorRun.consentId, confirmation: 'allow-new-first-text-after-unknown' })
-            } }, t('firstNewInputAction')))) : null,
-        !history ? h('p', { style: S.rowMeta }, t(first ? 'firstUnavailable' : 'historyUnavailable')) : !first && history.required !== true && history.supported ? h('p', { style: S.rowMeta }, t('historyNotRequired')) : null,
-        history?.workspace ? h('p', { style: { ...S.rowMeta, overflowWrap: 'anywhere' } }, label('Scope', { sessionId, root: history.workspace.root, count: history.consumedCount })) : null,
-        first ? h('div', { style: S.section, 'data-task-first-model': true },
-          h('p', { style: S.rowMeta }, t('firstModelHint')),
-          h('div', { 'data-task-native-model': sessionId }, props.renderFactorySlot('conversation.model-selection', { locked: busy || closed || !prepared },
-            { fallback: h('p', { role: 'status', style: S.rowMeta }, t('nativeModelUnavailable')) })),
-          h('details', null, h('summary', { style: S.rowMeta }, t('firstModelDetails')),
-            h(ConversationField, { label: t('firstMaxTokens') }, h('input', { type: 'number', min: 1, max: Number.MAX_SAFE_INTEGER, step: 1, inputMode: 'numeric', value: modelDraft.maxTokens, disabled: busy || closed, style: S.input, onChange: event => { occurrence.current++; clearConfirmations(); setMaxTokens(event.target.value) } }))),
-          h(ConversationButton, { disabled: !maySelect || !validSelection, onClick: async () => { clearConfirmations(); await execute({ action: 'selectFirstTextModel', ...selectionRequest }) } }, t('firstSelectModel')),
-          effects ? h('p', { style: S.rowMeta }, t('firstModelEffects', { filesystem: t(effects.filesystem ? 'firstEffectYes' : 'firstEffectNo'), credentials: t(effects.credentials ? 'firstEffectYes' : 'firstEffectNo'), network: t(effects.network ? 'firstEffectYes' : 'firstEffectNo'), cache: t(effects.cache ? 'firstEffectYes' : 'firstEffectNo') })) : null,
-          h(ConversationConsent, { checked: modelPreparation, onChange: setModelPreparation, disabled: !maySelect || !matchesSelection || !effects }, t('firstModelPreparationConsent')),
-          h(ConversationButton, { disabled: !maySelect || !validSelection || !matchesSelection || !effects || !modelPreparation, onClick: async () => {
-            clearConfirmations()
-            await execute({ action: 'selectFirstTextModel', ...selectionRequest, selectionRevision: selection.selectionRevision, preparationConfirmation: 'prepare-first-task-model-metadata' })
-          } }, t('firstPrepareModel')),
-          history?.model ? h(React.Fragment, null,
-            h('p', { role: 'status', style: { ...S.rowMeta, overflowWrap: 'anywhere' } }, t('firstModelSummary', { provider: history.model.provider, model: history.model.model })),
-            h('details', null, h('summary', { style: S.rowMeta }, t('firstModelDetails')), h('pre', { style: { ...S.rowMeta, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, JSON.stringify(history.model, null, 2)))) : null) : null,
-        h(ConversationButton, { disabled: !ready || closed || ['reserved', 'running'].includes(history?.phase), onClick: async () => {
-          clearConfirmations(); setResult(null)
-          const response = await execute({ action: first ? 'reviewFirstTextContext' : 'reviewHistoricalContext' })
-          const parsed = (first ? taskWire.firstTextReviewResultSchema : taskWire.historicalReviewResultSchema).safeParse(response?.result)
-          if (parsed.success) setReview({ id: parsed.data.reviewId, expiresAt: parsed.data.expiresAt })
-        } }, label('Review')),
-        h(ConversationConsent, { checked: approval, onChange: setApproval, disabled: !ready || !review }, label('ApprovalConsent')),
-        h(ConversationButton, { disabled: !ready || closed || !review || Date.now() >= review.expiresAt || !approval, onClick: async () => {
-          const reviewId = review?.id; clearConfirmations()
-          await execute({ action: first ? 'authorizeFirstTextContext' : 'authorizeHistoricalContext', reviewId, confirmation: first ? 'authorize-reviewed-first-task-text' : 'authorize-reviewed-task-history-text' })
-        } }, label('Authorize')),
-        history?.consentId ? h('p', { role: 'status', style: S.rowMeta }, label(history.sharingConfirmed ? 'SharingConfirmed' : 'Approved')) : null,
-        h(ConversationConsent, { checked: sharing, onChange: setSharing, disabled: !ready || !history?.consentId || history.sharingConfirmed }, label('SharingConsent')),
-        h(ConversationButton, { disabled: !ready || closed || !history?.consentId || history.sharingConfirmed || !sharing, onClick: async () => {
-          const consentId = history.consentId; setSharing(false); setRunConsent(false)
-          await execute({ action: 'setSharing', allowWechat: true, [first ? 'firstTextConsentId' : 'historyConsentId']: consentId, confirmation: first ? 'share-reviewed-first-task-text' : 'share-reviewed-task-history-context' })
-        } }, label('Share')),
-        h(ConversationConsent, { checked: runConsent, onChange: setRunConsent, disabled: !mayPoll }, label('RunConsent')),
-        h(ConversationButton, { disabled: !mayPoll || closed || !runConsent, onClick: async () => {
-          const consentId = history.consentId; setRunConsent(false); setResult(null)
-          const response = await execute({ action: 'pollTextOnce', allowSharedContext: true, [first ? 'firstTextConsentId' : 'historyConsentId']: consentId, confirmation: first ? 'poll-one-text-reply-with-first-task-text' : 'poll-one-text-reply-with-reviewed-history' })
-          if (response?.result?.receipt?.operation === 'terminal') setResult(response.result.receipt)
-        } }, label('Run')),
-        result ? h('p', { role: 'status', style: S.rowMeta }, t(result.runOutcome === 'replied' ? 'historyAccepted' : result.runOutcome === 'empty' ? 'historyEmpty' : 'historyRunUnknown')) : null,
-        h(ConversationButton, { disabled: closed, onClick: async () => {
-          const revokeId = newHistoryRevokeId(); if (!revokeId) { setError('UNAVAILABLE'); return }
-          clearConfirmations()
-          await execute({ action: first ? 'revokeFirstTextContext' : 'revokeHistoricalContext', revokeId, confirmation: first ? 'revoke-first-task-text' : 'revoke-task-history-context' })
-        } }, label('Revoke'))) : null)
-    }
+
     function isTaskTarget(sessionId) {
       return taskWire.actionSchema.safeParse({ kind: 'task', action: 'resumeConversation', sessionId, confirmation: 'resume-task-conversation' }).success
     }
@@ -2244,22 +2054,16 @@ function createConversationWire(z) {
       }, SidebarNavigationEntry))
       ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
         name: 'sidebar.right.pane.tab', key: CONVERSATION_TAB_ID, locale: CONVERSATION_NS,
-        children: { 'wechat.task.text-controls': { kind: 'single', scope: 'session' } },
         // Pure factory captures this independently injected leaf. The owner
         // supplies useTabInfo; do not pass TabHookContext or custom hooks here.
         inject: () => ({ remote: ctx.remote[CONVERSATION_NAMESPACE], connectionGeneration: ctx.connection.generation, lifecycleSignal: capability.signal,
           nativeSession: id => { const binding = ctx.sessions.binding(id); return binding ? binding.session : undefined },
-          retainModelSession: (id, signal) => ctx.sessions.retain(id, { source: 'wechat-model-picker', signal }),
           pickDirectory: capability.pickDirectory, taskText: ctx.locale.bind(TASK_NS),
           canOpenNativeSession: capability.canOpenNativeSession, openNativeSession: capability.openNativeSession,
           hooks: { nativeCurrent: ctx.uiSession.adapter.current, sessionCatalog: ctx.sessions.list },
           isCurrentSession: id => ctx.uiSession.adapter.current.getSnapshot().key === id && ctx.layout.panelInfo.getSnapshot().activePanelId === null && ctx.sidebarRight.mounted.getSnapshot() === id,
         }),
       }, ConversationBodyEntry))
-      ctx.slots.inject('wechat.task.text-controls', () => ctx.slots.register({
-        name: 'wechat.task.text-controls', locale: TASK_NS,
-        inject: id => ({ hooks: { nativeModels: ctx.modelDirectories.directoryFor(id).store } }),
-      }, TaskHistoricalContextControls))
       ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({ name: 'sidebar.right.pane.tab.title', key: CONVERSATION_TAB_ID, locale: CONVERSATION_NS }, ConversationTitle))
     }
 
@@ -2944,7 +2748,7 @@ function createConversationWire(z) {
         ctx.effect(() => ctx.locale.register(TASK_NS, taskI18n), 'wechat-task: flat dictionaries')
         registerUiDiagnostics(ctx)
         registerConversationDiagnostics(ctx)
-        ctx.inject(['remote.' + CONVERSATION_NAMESPACE, 'connection', 'sidebarRightTabs', 'sidebarRight', 'uiWorkspace', 'sessions', 'uiSession', 'modelDirectories', 'layout'], function registerWechatConversation(ctx) {
+        ctx.inject(['remote.' + CONVERSATION_NAMESPACE, 'connection', 'sidebarRightTabs', 'sidebarRight', 'uiWorkspace', 'sessions', 'uiSession', 'layout'], function registerWechatConversation(ctx) {
           registerConversationUi(ctx)
           })
 
