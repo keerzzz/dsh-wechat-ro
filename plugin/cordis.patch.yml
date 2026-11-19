@@ -1,0 +1,35 @@
+# dsh-wechat-ro: archive UI + dedicated native conversation in the existing DSH web profile.
+# Both legacy snapshot rows remain disabled. The preset itself performs no data
+# or network operation; creating/granting/pairing/starting require separate owner actions.
+# No MCP or optional second admin app is mounted. SourceRoot is denied metadata.
+- insert:
+    - id: wechat-ro-commands
+      name: dsh-wechat-ro
+      config:
+        snapshotEnabled: false
+        sourceRoot: ''
+        maxRows: 500
+    - id: wechat-ro-remote
+      name: dsh-wechat-ro/controller
+      config:
+        snapshotEnabled: false
+        sourceRoot: ''
+        maxRows: 500
+    - id: preset-dsh-wechat-task-v1
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: dsh-wechat-task-v1
+        name: 微信
+        description: 原生持久任务；资料和工作区需明确授权，不开放未隔离执行或其他联系人发送。
+        order: 91
+        plugins:
+          - id: wechat-task-tool-presentation
+            name: '@deepseek-ai/dsh-agent-tool-presentation'
+            config:
+              mode: native
+          - id: wechat-task-native-deliverables
+            name: '@deepseek-ai/dsh-tool-present'
+            config:
+              maxFiles: 4
+          - id: wechat-task-scoped-policy
+            name: dsh-wechat-ro/task-session-agent

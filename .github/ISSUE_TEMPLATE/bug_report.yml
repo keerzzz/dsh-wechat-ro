@@ -1,0 +1,31 @@
+name: 故障报告
+description: 提供可复现的错误与运行环境。
+title: '[Bug] '
+labels: [bug]
+body:
+  - type: input
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 插件版本或提交号、系统、Node.js 和 DSH 版本。
+      placeholder: '0.2.0 / Ubuntu 24.04 / Node 24.15.0 / DSH ...'
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 写出从哪个页面开始、执行了哪些操作。
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 日志、截图或测试结果
+      description: 请先移除二维码、凭据、账号标识和真实聊天正文。安全漏洞请通过 SECURITY.md 的私密渠道报告。

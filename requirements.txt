@@ -1,0 +1,4 @@
+# Runtime deps for the WeChat read-only MCP server (Python 3.10+).
+# Install:  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+mcp>=1.2.0,<2.0.0
+zstandard>=0.23,<1

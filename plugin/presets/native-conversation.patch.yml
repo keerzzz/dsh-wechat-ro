@@ -1,0 +1,19 @@
+# Supported bundle patch. Include this declaration in dsh.bundle.patch; do not
+# install a mutable profile fragment or rely on a process-only setup callback.
+# config.id is durably written into every bridge Session header. Explicit-id
+# mount fails closed if this declaration or its policy module is unavailable.
+- insert:
+    - id: preset-dsh-wechat-native-ro-v1
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: dsh-wechat-native-ro-v1
+        name: 微信原生只读会话（由插件创建）
+        description: 专用持久受限会话；缺少本插件时不能恢复为普通工具会话。
+        order: 90
+        plugins:
+          - id: wechat-native-tool-presentation
+            name: '@deepseek-ai/dsh-agent-tool-presentation'
+            config:
+              mode: native
+          - id: wechat-native-readonly-policy
+            name: dsh-wechat-ro/session-bridge-agent

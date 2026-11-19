@@ -1,0 +1,23 @@
+import type { Context } from '@deepseek-ai/cordis';
+import type { Agent } from '@deepseek-ai/dsh-agent';
+import type { Session } from '@deepseek-ai/dsh-session';
+import type { TaskAccess } from './task-access.js';
+export { TASK_PRESET_ID, isTaskSessionId } from './task-access.js';
+export declare const TASK_SOURCE_TOOL: 'wechat_task_sources';
+export declare const TASK_FILE_TOOL: 'wechat_task_files';
+export declare function bindTaskSessionData(sessionId: string, access: TaskAccess, destination: () => 'local' | 'wechat', agent?: Agent): () => void;
+export declare function assertTaskSessionHistory(session: Session, options?: {
+    fresh?: boolean;
+}): true;
+export declare function installTaskSessionPolicy(agentCtx: Context, agent: Agent, sandboxPolicy: {
+    resolve(input: {
+        session: Session;
+    }): {
+        mode: string;
+    };
+}): Promise<void>;
+export declare function hasTaskSessionPolicy(agent: Agent): boolean;
+export declare function inspectTaskSessionHistory(session: Session): boolean | 'unknown';
+export declare const name: 'wechat-task-session-policy';
+export declare const inject: readonly ['tools', 'systemPrompt', 'sandboxPolicy', 'workingDirectory'];
+export declare function apply(ctx: Context): void;

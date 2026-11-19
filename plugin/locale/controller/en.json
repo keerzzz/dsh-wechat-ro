@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "WeChat snapshot and conversation service",
+    "description": "Provides strictly validated read-only snapshot and connection actions for the native sidebar. No reads or networking by default. Independent decrypted copies require explicit Session grants, and WeChat connection and messaging need separate confirmations."
+  }
+}

@@ -1,0 +1,39 @@
+# Local state and generated review evidence are not production source.
+/.codegraph/
+/.venv/
+/.snapshot/
+/audit/
+.taste-skill/
+/tests/fixture_snapshot/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+/dist/
+coverage/
+
+# Private data, credentials, and machine-specific configuration.
+/decrypted/
+/config/*
+!/config/*.example.*
+!/config/README.md
+.env
+.env.*
+!.env.example
+wechat-passphrase.json
+key_info.dat
+*.db
+*.sqlite
+*.sqlite3
+*-wal
+*-shm
+*-journal
+*.log
+/.mcp.json
+/.claude/settings.local.json
+/.claude/launch.json
+/.claude/worktrees/
+
+# Curated, security-sensitive vendored source must remain discoverable.
+!/vendor/
+!/ui-preview/vendor/

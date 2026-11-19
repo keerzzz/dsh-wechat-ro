@@ -1,0 +1,14 @@
+# Optional composition ROW, not an automatically applied bundle patch.
+# Do not load this into a live profile without separate operator approval.
+# The normal DSH Connection, browser authentication and credentials services
+# must already be provided. No second HTTP listener or authentication gateway.
+# When used from a checkout, replace name with the reviewed absolute module path.
+# enabled only opens explicit PAIRING management; it never starts messaging.
+# The shipped UI cannot request a QR until a reviewed local renderer is wired.
+- id: wechat-ro-weixin-admin
+  name: dsh-wechat-ro/weixin-admin
+  config:
+    enabled: false
+    apiTimeoutMs: 40000
+    maxResponseBytes: 1048576
+    requestTimeoutMs: 40000

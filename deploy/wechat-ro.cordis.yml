@@ -1,0 +1,21 @@
+# WeChat read-only MCP — uninstalled example, not an active profile.
+# Replace the snapshot placeholder with an operator-selected absolute PRIVATE
+# generation/decrypted path readable by the DSH execution identity (README).
+# Do not apply this sample unchanged or start a second GUI to update an existing one.
+# Project/Python paths are local examples too; review them before installation.
+# SQL mode=ro + query_only is logical read-only: snapshot WAL/SHM may be created.
+# No original WeChat file, process or credentials are accessed by this MCP server.
+- insert:
+    - id: mcp-wechat-ro
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: wechat
+        transport: stdio
+        command: /REPLACE_WITH_PROJECT_ROOT/.venv/bin/python
+        args: [ '-m', 'wechat_ro_mcp' ]
+        cwd: /REPLACE_WITH_PROJECT_ROOT
+        env:
+          WECHAT_SNAPSHOT_DIR: /REPLACE_WITH_PRIVATE_WECHAT_STATE/snapshot/decrypted
+          PYTHONPATH: /REPLACE_WITH_PROJECT_ROOT
+        toolCallTimeoutMs: 120000
+        failOnStartupError: false

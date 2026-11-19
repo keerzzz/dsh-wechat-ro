@@ -1,0 +1,308 @@
+{
+  "name": "dsh-wechat-ro",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "WeChat chat history search, automatic local snapshots and daily insight cards for DeepSeek Harness, with a read-only Python MCP server.",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./typert": {
+      "types": "./lib/types/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./remote": {
+      "types": "./lib/types/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./wire": {
+      "types": "./lib/types/wire.d.ts",
+      "default": "./lib/wire.js"
+    },
+    "./channel": {
+      "types": "./lib/types/channel.d.ts",
+      "default": "./lib/channel.js"
+    },
+    "./weixin-api": {
+      "types": "./lib/types/weixin-api.d.ts",
+      "default": "./lib/weixin-api.js"
+    },
+    "./weixin-media": {
+      "types": "./lib/types/weixin-media.d.ts",
+      "default": "./lib/weixin-media.js"
+    },
+    "./weixin-channel": {
+      "types": "./lib/types/weixin-channel.d.ts",
+      "default": "./lib/weixin-channel.js"
+    },
+    "./weixin-dsh": {
+      "types": "./lib/types/weixin-dsh.d.ts",
+      "default": "./lib/weixin-dsh.js"
+    },
+    "./weixin-admin": {
+      "types": "./lib/types/weixin-admin.d.ts",
+      "default": "./lib/weixin-admin.js"
+    },
+    "./weixin-admin.cordis.example.yml": "./weixin-admin.cordis.example.yml",
+    "./conversation-controller": {
+      "types": "./lib/types/conversation-controller.d.ts",
+      "default": "./lib/conversation-controller.js"
+    },
+    "./conversation-wire": {
+      "types": "./lib/types/conversation-wire.d.ts",
+      "default": "./lib/conversation-wire.js"
+    },
+    "./session-bridge": {
+      "types": "./lib/types/session-bridge.d.ts",
+      "default": "./lib/session-bridge.js"
+    },
+    "./session-bridge-agent": {
+      "types": "./lib/types/session-bridge-agent.d.ts",
+      "default": "./lib/session-bridge-agent.js"
+    },
+    "./archive-access": {
+      "types": "./lib/types/archive-access.d.ts",
+      "default": "./lib/archive-access.js"
+    },
+    "./qr-renderer": {
+      "types": "./lib/types/qr-renderer.d.ts",
+      "default": "./lib/qr-renderer.js"
+    },
+    "./task-access": {
+      "types": "./lib/types/task-access.d.ts",
+      "default": "./lib/task-access.js"
+    },
+    "./task-session-agent": {
+      "types": "./lib/types/task-session-agent.d.ts",
+      "default": "./lib/task-session-agent.js"
+    },
+    "./task-session-bridge": {
+      "types": "./lib/types/task-session-bridge.d.ts",
+      "default": "./lib/task-session-bridge.js"
+    },
+    "./presets/wechat-task.patch.yml": "./presets/wechat-task.patch.yml",
+    "./presets/native-conversation.patch.yml": "./presets/native-conversation.patch.yml",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./cordis.snapshot.example.yml": "./cordis.snapshot.example.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./controller/locale/*.json": "./locale/controller/*.json",
+    "./controller/icon": "./icon.svg",
+    "./controller": {
+      "types": "./lib/types/controller.d.ts",
+      "default": "./lib/controller.js"
+    }
+  },
+  "files": [
+    "runtime/*.py",
+    "lib/conversation-controller.js",
+    "lib/conversation-wire.js",
+    "lib/session-bridge.js",
+    "lib/native-session-bridge.js",
+    "lib/session-bridge-agent.js",
+    "lib/task-access.js",
+    "lib/task-history.js",
+    "lib/task-session-agent.js",
+    "lib/task-session-bridge.js",
+    "presets/wechat-task.patch.yml",
+    "lib/archive-access.js",
+    "lib/archive-query-worker.js",
+    "lib/qr-renderer.js",
+    "presets/native-conversation.patch.yml",
+    "lib/index.js",
+    "lib/controller.js",
+    "lib/methods.js",
+    "lib/client.js",
+    "lib/snapshot.js",
+    "lib/export.js",
+    "lib/typert.host.js",
+    "lib/typert.remote-client.js",
+    "lib/wire.js",
+    "lib/channel.js",
+    "lib/weixin-api.js",
+    "lib/weixin-http.js",
+    "lib/weixin-media.js",
+    "THIRD_PARTY_NOTICES.md",
+    "lib/weixin-channel.js",
+    "lib/weixin-dsh.js",
+    "lib/weixin-admin.js",
+    "lib/weixin-admin-ui/admin.html",
+    "lib/weixin-admin-ui/admin.js",
+    "lib/weixin-admin-ui/admin.css",
+    "weixin-admin.cordis.example.yml",
+    "lib/types/**/*.d.ts",
+    "locale/**/*.json",
+    "icon.svg",
+    "LICENSE",
+    "cordis.patch.yml",
+    "cordis.snapshot.example.yml",
+    "README.md",
+    "lib/local-history.js",
+    "lib/daily-cards.js"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.2",
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {
+    "qrcode-generator": "2.0.4",
+    "zod": "^3.25.76 || ^4.4.3"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "8.73.0",
+    "@typescript-eslint/parser": "8.73.0",
+    "css-tree": "3.2.1",
+    "eslint": "10.15.0",
+    "globals": "17.14.0",
+    "jsqr": "1.4.0",
+    "parse5": "8.1.1",
+    "typescript": "6.0.3",
+    "yaml": "2.9.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-agent": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-agent-default-model": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-agent-preset": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-agent-tool-presentation": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-fs": "*",
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-sandbox-policy": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-scope": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-session": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-session-projection": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-session-query": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-tool-present": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-typert-protocol": "*",
+    "@deepseek-ai/dsh-working-directory": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-workspace": "^0.2.1-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-credentials": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-sandbox-policy": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-scope": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent-preset": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent-default-model": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session-projection": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent-tool-presentation": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-storage-domain": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-working-directory": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-workspace": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session-query": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tool-present": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "check": "node scripts/check-structure.mjs",
+    "smoke:host": "node scripts/smoke-host.mjs",
+    "smoke:client": "node scripts/smoke-client.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "test:ci": "node scripts/run-ci.mjs",
+    "test:client": "node scripts/run-tests.mjs --only test-conversation-client",
+    "test:local-history": "node scripts/run-tests.mjs --only test-local-history",
+    "runtime": "node scripts/sync-local-history-runtime.mjs",
+    "test:unconfigured": "node --unhandled-rejections=strict --test scripts/test-unconfigured-deployment.mjs",
+    "test:native-unconfigured": "node --unhandled-rejections=strict --test scripts/test-native-unconfigured.mjs",
+    "test:host": "node scripts/test-host-hardening.mjs",
+    "test:contracts": "node scripts/test-contracts.mjs",
+    "test:channel": "node scripts/test-channel.mjs",
+    "test:weixin-api": "node --unhandled-rejections=strict --test scripts/test-weixin-api.mjs",
+    "test:weixin-channel": "node --unhandled-rejections=strict --test scripts/test-weixin-channel.mjs",
+    "test:weixin-updates-diagnostic": "node --unhandled-rejections=strict --test scripts/test-weixin-updates-diagnostic.mjs",
+    "test:weixin-dsh": "node --unhandled-rejections=strict --test scripts/test-weixin-dsh.mjs",
+    "test:weixin-admin": "node --unhandled-rejections=strict --test scripts/test-weixin-admin.mjs",
+    "test:weixin-admin-ui": "node --unhandled-rejections=strict --test scripts/test-weixin-admin-ui.mjs",
+    "test:weixin-admin-host": "node --unhandled-rejections=strict --test scripts/test-weixin-admin-host.mjs",
+    "test:data": "node scripts/test-data-hardening.mjs",
+    "types:check": "tsc -p tsconfig.json --noEmit",
+    "types": "tsc -p tsconfig.json",
+    "check:quality": "node scripts/check-quality.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-tool",
+        "@deepseek-ai/dsh-client-ui-model-selection"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/keerzzz/dsh-wechat-ro.git"
+  },
+  "homepage": "https://github.com/keerzzz/dsh-wechat-ro#readme",
+  "bugs": {
+    "url": "https://github.com/keerzzz/dsh-wechat-ro/issues"
+  },
+  "keywords": [
+    "wechat",
+    "weixin",
+    "deepseek-harness",
+    "mcp",
+    "chat-history",
+    "local-first",
+    "linux",
+    "daily-insights"
+  ]
+}

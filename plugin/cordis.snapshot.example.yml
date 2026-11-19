@@ -1,0 +1,32 @@
+# MANUAL EXAMPLE ONLY. NOT the default installed bundle patch.
+# Requires a separately authorized decrypted snapshot, available to the normal
+# DSH identity. Do not point snapshotDir at encrypted xwechat_files/db_storage.
+# Review Python/project paths. Never apply this example unchanged.
+- insert:
+    - id: mcp-wechat-ro
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: wechat
+        transport: stdio
+        command: /REPLACE_WITH_PROJECT_ROOT/.venv/bin/python
+        args: ['-m', 'wechat_ro_mcp']
+        cwd: /REPLACE_WITH_PROJECT_ROOT
+        env:
+          WECHAT_SNAPSHOT_DIR: /REPLACE_WITH_PRIVATE_WECHAT_STATE/snapshot/decrypted
+          PYTHONPATH: /REPLACE_WITH_PROJECT_ROOT
+        toolCallTimeoutMs: 120000
+        failOnStartupError: false
+    - id: wechat-ro-commands
+      name: dsh-wechat-ro
+      config:
+        snapshotEnabled: true
+        snapshotDir: /REPLACE_WITH_PRIVATE_WECHAT_STATE/snapshot/decrypted
+        sourceRoot: /REPLACE_WITH_WECHAT_SOURCE_ROOT
+        maxRows: 500
+    - id: wechat-ro-remote
+      name: dsh-wechat-ro/controller
+      config:
+        snapshotEnabled: true
+        snapshotDir: /REPLACE_WITH_PRIVATE_WECHAT_STATE/snapshot/decrypted
+        sourceRoot: /REPLACE_WITH_WECHAT_SOURCE_ROOT
+        maxRows: 500

@@ -1,0 +1,24 @@
+name: 功能建议
+description: 说明要解决的实际问题和验收方式。
+title: '[Feature] '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 要解决什么问题
+      description: 描述使用场景及当前操作中的困难。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议的行为
+      description: 说明用户如何使用，以及成功时应该看到什么结果。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准与约束
+      description: 可执行的检查方法、平台要求或替代方案。
