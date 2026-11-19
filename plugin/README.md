@@ -1,6 +1,8 @@
 # dsh-wechat-ro
 
-WeChat history search, automatic local updates and daily insight cards for DeepSeek Harness.
+WeChat history search and daily insight cards for DeepSeek Harness, targeting Windows, macOS and Linux.
+
+本插件是多系统微信历史工作区的一部分，面向 Windows、macOS、Linux。平台进度见 [平台支持与适配](../docs/platform-support.md)。当前 Linux 的一键采集和原生历史 worker 已落地；Windows/macOS 的平台实现待补齐。
 
 插件在 DSH 原生微信侧栏提供扫码连接、本人机器人自动文字回复、一键历史导入、搜索前更新、每分钟空闲检查和每日可视化卡片。重点和待办按群聊、个人、公众号、服务号区分，并按会话分组展示原文证据。
 

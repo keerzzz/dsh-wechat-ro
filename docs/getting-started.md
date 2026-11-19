@@ -1,5 +1,7 @@
 # 使用指南：微信历史、数据卡片与 MCP
 
+本项目面向 Windows、macOS、Linux。下述一键采集步骤对应当前已验证的 Linux 实现；其他平台的实施与验收进度见[平台支持说明](platform-support.md)。
+
 ## 1. 准备环境
 
 独立开发与 CI 使用 Node.js 24.15.0、pnpm 10.34.1、Python 3.12。安装步骤见[仓库首页](../README.md#快速开始)。

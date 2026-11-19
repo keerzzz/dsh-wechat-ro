@@ -1,11 +1,13 @@
-# WeChat history search for DeepSeek Harness
+# Cross-platform WeChat history workspace for DeepSeek Harness
 
-DSH WeChat RO connects a personal WeChat bot to a native DeepSeek Harness conversation. It imports local chat history into separate decrypted snapshots, searches by contact, date and keyword, and presents daily insight cards with original message citations.
+DSH WeChat RO targets **Windows, macOS and Linux desktop WeChat**. The goal is one DeepSeek Harness workspace for history search, original message citations and daily insight cards, with platform-specific capture and file access. The current implemented capture and native archive worker are Linux-specific; see the [platform support plan](platform-support.md).
+
+In the implemented environment, it connects a personal WeChat bot to a native DSH conversation and imports local history into separate decrypted snapshots.
 
 ## Features
 
 - QR pairing and automatic text replies in the paired user's bot conversation.
-- One-click history import from the supported Linux WeChat build.
+- One-click history import on adapted platforms; Linux is implemented, Windows and macOS are pending.
 - Refresh checks before searches and once per idle minute; new snapshots only when data changes.
 - Daily metrics, a seven-day trend, message composition and conversation rankings.
 - Evidence cards split into group chats, personal chats, public accounts and service accounts.
@@ -27,7 +29,7 @@ CI uses Node.js 24.15.0, pnpm 10.34.1 and Python 3.12. Seven independent plugin 
 
 Native DSH integration requires a compatible host SDK and session extensions. A reproducible public SDK installation is still being prepared. In an existing compatible host, load `plugin/` through Plugin Manager, select a conversation directory and model, connect from the WeChat sidebar, then import history.
 
-Linux WeChat 4.1.13.26 was validated locally for import, automatic updates and phone search replies. Other client builds, Windows and macOS require further adaptation and validation.
+Linux WeChat 4.1.13.26 was validated locally for import, automatic updates and phone search replies. Windows and macOS require both capture and native archive-file access implementations, followed by on-platform validation. Existing decrypted snapshots can be evaluated through the separate Python MCP reader; their schemas and host platforms still need validation.
 
 ## Read-only MCP
 

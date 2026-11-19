@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "WeChat chat history search, automatic local snapshots and daily insight cards for DeepSeek Harness, with a read-only Python MCP server.",
+  "description": "WeChat history workspace for DeepSeek Harness targeting Windows, macOS and Linux, with search, daily insight cards and read-only MCP.",
   "license": "MIT",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -303,6 +303,9 @@
     "chat-history",
     "local-first",
     "linux",
-    "daily-insights"
+    "daily-insights",
+    "cross-platform",
+    "windows",
+    "macos"
   ]
 }

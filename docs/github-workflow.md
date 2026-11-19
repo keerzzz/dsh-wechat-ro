@@ -50,7 +50,7 @@ git ls-files '*.db' '*.sqlite*' '*.log' '.env*' 'key_info.dat' 'wechat-passphras
 
 ### 仓库搜索与 SEO 内容
 
-仓库名与 package 名统一为 `dsh-wechat-ro`。About 描述使用 WeChat、chat history、DeepSeek Harness、daily insight cards 和 read-only MCP 等实际能力；Topics 使用对应技术和场景词。Homepage 链接指向 README 文档入口。
+仓库名与 package 名统一为 `dsh-wechat-ro`。About 描述使用 WeChat、chat history、DeepSeek Harness、daily insight cards 和 read-only MCP 等能力，并写明 Windows/macOS/Linux 是目标平台；Topics 覆盖三平台和对应技术、场景词。平台的当前实现与验收状态以 README 平台表为准。Homepage 链接指向 README 文档入口。
 
 首页包含英文简介、中文功能、快速开始、支持范围、项目结构和许可证；英文指南使用稳定的相对链接。新增能力后同时更新 README、About 与相关 Topics，保持内容与源码一致。GitHub 搜索展示可直接核验；外部搜索引擎的索引与排名由其抓取结果决定。
 
