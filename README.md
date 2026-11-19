@@ -9,7 +9,7 @@
 
 在已适配环境中，可通过原生微信侧栏扫码连接、一键导入历史。搜索前检查更新，空闲时每分钟检查一次；每天生成卡片的时间可在设置中选择。
 
-[安装与 DSH 版本](docs/installation.md) · [平台支持与适配](docs/platform-support.md) · [使用指南](docs/getting-started.md) · [English guide](docs/guide.en.md) · [架构与数据口径](docs/architecture.md) · [开发工作流](docs/github-workflow.md) · [代码质量](docs/code-quality.md) · [贡献](CONTRIBUTING.md) · [更新记录](CHANGELOG.md)
+[安装与 DSH 版本](docs/installation.md) · [平台支持与适配](docs/platform-support.md) · [使用指南](docs/getting-started.md) · [本地内容分析](docs/content-analysis.md) · [English guide](docs/guide.en.md) · [架构与数据口径](docs/architecture.md) · [开发工作流](docs/github-workflow.md) · [代码质量](docs/code-quality.md) · [贡献](CONTRIBUTING.md) · [更新记录](CHANGELOG.md)
 
 ## 功能
 

@@ -40,7 +40,7 @@
 
 ## 可选只读 MCP
 
-Python 服务读取标准 SQLite 解密副本，目录包含 `contact/`、`session/` 和 `message/`。它提供 8 个工具：
+Python 服务读取标准 SQLite 解密副本，目录包含 `contact/`、`session/` 和 `message/`。它提供 9 个工具；新增 `wechat_content` 查询插件生成的朋友圈、收藏、小程序及媒体派生文字索引：
 
 | 工具 | 用途 |
 | --- | --- |

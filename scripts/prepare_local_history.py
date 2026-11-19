@@ -20,6 +20,7 @@ import tempfile
 import uuid
 import stat
 import fcntl
+import build_content_index
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "vendor"))
 import wcdb_live_snapshot
@@ -139,6 +140,11 @@ def managed_history(command: str, emit=print, consumer=None, pinned=None) -> dic
             if command == 'refresh':
                 raise ValueError('当前微信账号已改变，请重新导入')
             record = None
+        if command == 'refresh' and record:
+            # An installed upgrade keeps refreshing the already-authorized scope.
+            # The next explicit import expands it and authenticates new keys.
+            stored_keys = wcdb_key_tool._read_private_json(str(Path(record['state']) / 'runtime-keys.json'))
+            paths = [name for name in paths if name in stored_keys]
         if record is not None and command == 'import' and not reusable_keys(Path(record['state']), source, paths):
             record = None
         if record is None:
@@ -175,6 +181,8 @@ def managed_history(command: str, emit=print, consumer=None, pinned=None) -> dic
         if keys.get('_db_dir') != str(source) or any(name not in keys for name in paths):
             raise ValueError('当前账号的密钥集合不完整，请重新导入')
         stamp = source_stamp(source, paths)
+        content_cache = Path.home() / '.local/share/dsh-wechat-ro/content-history' / record['account_ref']
+        content_stamp = str(content_cache.stat().st_mtime_ns) if content_cache.exists() else 'none'
         existing = record.get('snapshot_directory')
         if existing is not None:
             snapshot = Path(existing)
@@ -185,7 +193,8 @@ def managed_history(command: str, emit=print, consumer=None, pinned=None) -> dic
             manifest = wcdb_key_tool._read_private_json(str(snapshot / '.wechat-ro-manifest.json'))
             if not manifest.get('complete') or manifest.get('snapshot_id') != record.get('snapshot_id') or record.get('build_sha256') != wcdb_runtime_keys.BUILD_SHA256:
                 raise ValueError('历史副本记录不匹配')
-            if record.get('stamp') == stamp:
+            indexed = 'sns/sns.db' in paths or 'favorite/favorite.db' in paths
+            if record.get('stamp') == stamp and record.get('content_stamp', 'none') == content_stamp and (not indexed or record.get('content_index_version') == build_content_index.VERSION):
                 if consumer:
                     retain_generations(registry, record, consumer, pinned)
                 return {**record, 'changed': False, 'database_count': len(paths)}
@@ -193,8 +202,23 @@ def managed_history(command: str, emit=print, consumer=None, pinned=None) -> dic
         generations.mkdir(mode=0o700, exist_ok=True)
         destination = generations / ('snapshot-' + uuid.uuid4().hex)
         emit(json.dumps({'phase': 'updating', 'databaseCount': len(paths)}), flush=True)
-        result = wcdb_live_snapshot.snapshot_live(str(source), str(destination), str(state / 'runtime-keys.json'), selected_paths=paths)
-        record.update({'stamp': stamp, 'snapshot_directory': str(destination / 'decrypted'),
+        result = wcdb_live_snapshot.snapshot_live(str(source), str(destination), str(state / 'runtime-keys.json'),
+                                                  selected_paths=paths, previous_snapshot=existing)
+        if 'sns/sns.db' in paths or 'favorite/favorite.db' in paths:
+            manifest_file = destination / 'decrypted/.wechat-ro-manifest.json'
+            manifest = wcdb_key_tool._read_private_json(str(manifest_file))
+            derived = build_content_index.build_index(destination / 'decrypted', Path(existing) if existing else None,
+                {item['path'] for item in manifest['databases'] if item.get('reused')}, record['account_ref'], media_root=source.parent / 'msg')
+            content_file = destination / 'decrypted/content/content.db'
+            with content_file.open('rb') as content:
+                content_hash = hashlib.file_digest(content, 'sha256').hexdigest()
+            manifest['files'].append({'path': 'content/content.db', 'size': content_file.stat().st_size, 'sha256': content_hash})
+            manifest['content_index'] = derived
+            manifest['account_ref'] = record['account_ref']
+            wcdb_key_tool._write_private_json(str(manifest_file), manifest)
+            record['content_sources'] = ['moments', 'favorites', 'miniprogram', 'voice', 'image', 'video']
+            record['content_index_version'] = build_content_index.VERSION
+        record.update({'stamp': stamp, 'content_stamp': content_stamp, 'snapshot_directory': str(destination / 'decrypted'),
                        'captured_at': wcdb_live_snapshot._now(), 'snapshot_id': result['snapshot_id'],
                        'database_count': len(paths), 'build_sha256': plan['client_build_sha256'],
                        'build_identity': plan['client_build_identity']})
@@ -226,10 +250,11 @@ def preparation_plan(pid: int, known_build=None) -> tuple[Path, list[str], dict]
         str(path.relative_to(source)) for path in (source / "message").glob("*.db")
         if re.fullmatch(r"(?:biz_)?message_\d+\.db", path.name)
     )
+    paths += [name for name in ('sns/sns.db', 'favorite/favorite.db', 'message/media_0.db', 'message/message_resource.db') if (source / name).is_file()]
     if len(paths) < 3 or any(not (source / path).is_file() for path in paths):
         raise ValueError("当前账号缺少联系人、会话或消息分片")
     sizes = [(source / path).stat().st_size for path in paths]
-    if len(paths) > 31 or max(sizes) > 134217728 or sum(sizes) > 536870912:
+    if len(paths) > 31 or max(sizes) > 134217728 or sum(sizes) > 805306368:
         raise ValueError("当前历史规模超出已验证的查询预算")
     return source, paths, {
         "status": "PREFLIGHT", "client_version": wcdb_runtime_keys.BUILD_VERSION,

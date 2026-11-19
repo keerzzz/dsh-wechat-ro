@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 const ORIGINAL_SOURCE = desktopPath(desktopHome(), 'Documents/xwechat_files'); // Metadata only; never probe this path.
 const WORKER = fileURLToPath(new URL('./archive-query-worker.js', import.meta.url));
-export const ARCHIVE_ACCESS_LIMITS = Object.freeze({ maxRows: 200, maxBytes: 131072, queryTimeoutMs: 5000,
+export const ARCHIVE_ACCESS_LIMITS = Object.freeze({ maxRows: 200, maxBytes: 131072, queryTimeoutMs: 15000,
   maxOffset: 1000, maxTalkers: 128, maxEntries: 256, maxDirectories: 16, maxFiles: 32,
-  maxDepth: 4, maxDbBytes: 134217728, maxTotalDbBytes: 536870912, maxReadRows: 5000, maxTables: 128 });
+  maxDepth: 4, maxDbBytes: 134217728, maxTotalDbBytes: 805306368, maxReadRows: 5000, maxTables: 128 });
 export const ARCHIVE_ACCESS_ERROR_CODES = Object.freeze(['invalid-options', 'invalid-request', 'invalid-session',
   'forbidden-root', 'not-granted', 'scope-forbidden', 'share-forbidden', 'busy', 'disposed', 'aborted', 'revoked',
   'timeout', 'unsupported-platform', 'unsupported-layout', 'unsupported-schema', 'unsupported-content',
@@ -80,12 +80,17 @@ function grantRequest(raw, sources) {
   return { root, allConversations: raw.allConversations, talkers, fromTs, toTs, allowWechat: raw.allowWechat };
 }
 function archiveQuery(raw, scope, limits) {
-  record(raw, ['action', 'talker', 'query', 'limit', 'offset', 'fromTs', 'toTs'], ['action']);
-  if (!['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest'].includes(raw.action)) fail('invalid-request');
+  record(raw, ['action', 'talker', 'query', 'limit', 'offset', 'fromTs', 'toTs', 'sourceKind'], ['action']);
+  if (!['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest', 'content', 'contentStats', 'media'].includes(raw.action)) fail('invalid-request');
   const q = { action: raw.action, limit: raw.limit === undefined ? Math.min(100, limits.maxRows) : Math.min(integer(raw.limit, 1, ARCHIVE_ACCESS_LIMITS.maxRows), limits.maxRows),
     offset: raw.offset === undefined ? 0 : integer(raw.offset, 0, limits.maxOffset), fromTs: scope.fromTs, toTs: scope.toTs };
   if (raw.talker !== undefined) {
     q.talker = talker(raw.talker); if (!scope.allConversations && !scope.talkers.includes(q.talker)) fail('scope-forbidden');
+  }
+  if (raw.sourceKind !== undefined) {
+    if (!['messages', 'moments', 'favorites', 'miniprogram', 'voice', 'image', 'video'].includes(raw.sourceKind)
+      || !['content', 'search', 'contentStats', 'media'].includes(q.action)) fail('invalid-request');
+    q.sourceKind = raw.sourceKind;
   }
   if (raw.fromTs !== undefined) { q.fromTs = time(raw.fromTs); if (scope.fromTs !== null && q.fromTs < scope.fromTs) fail('scope-forbidden'); }
   if (raw.toTs !== undefined) { q.toTs = time(raw.toTs); if (scope.toTs !== null && q.toTs > scope.toTs) fail('scope-forbidden'); }
@@ -105,7 +110,7 @@ function archiveQuery(raw, scope, limits) {
 }
 function optionsFor(raw = {}) {
   record(raw, ['sourceRoot', 'maxRows', 'maxBytes', 'queryTimeoutMs', 'maxOffset', 'hasArchiveHistory', 'markArchiveHistory'], [], 'invalid-options');
-  const limits = { ...ARCHIVE_ACCESS_LIMITS, maxRows: 100, maxBytes: 65536, queryTimeoutMs: 3000 };
+  const limits = { ...ARCHIVE_ACCESS_LIMITS, maxRows: 100, maxBytes: 65536, queryTimeoutMs: 10000 };
   for (const key of ['maxRows', 'maxBytes', 'queryTimeoutMs', 'maxOffset']) if (raw[key] !== undefined)
     limits[key] = integer(raw[key], key === 'maxOffset' ? 0 : key === 'maxBytes' ? 512 : 1, ARCHIVE_ACCESS_LIMITS[key], 'invalid-options');
   const sources = [];

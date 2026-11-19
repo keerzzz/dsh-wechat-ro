@@ -10,11 +10,11 @@ export declare function validateTaskDirectory(root: string, forbiddenRoots?: rea
 export declare const TASK_ACCESS_LIMITS: Readonly<{ maxTasks: 128; maxSources: 32; maxBytes: 65536; maxRows: 100; maxEvents: 20000; maxReferences: 128; timeoutMs: 15000 }>;
 export type TaskAccessErrorCode = 'invalid-options' | 'invalid-request' | 'not-prepared' | 'not-granted' | 'forbidden-root' | 'path-rejected'
   | 'unsupported-filesystem' | 'not-directory' | 'not-file' | 'file-changed' | 'byte-budget-exceeded' | 'event-budget-exceeded'
-  | 'history-unavailable' | 'share-forbidden' | 'source-failed' | 'query-budget-exceeded' | 'write-failed' | 'revoked' | 'aborted' | 'disposed' | 'busy' | 'not-produced';
+  | 'history-unavailable' | 'share-forbidden' | 'analysis-unavailable' | 'analysis-failed' | 'source-failed' | 'query-budget-exceeded' | 'write-failed' | 'revoked' | 'aborted' | 'disposed' | 'busy' | 'not-produced';
 export declare class TaskAccessError extends Error { readonly name: 'TaskAccessError'; readonly code: TaskAccessErrorCode; constructor(code: TaskAccessErrorCode); }
 export interface TaskWorkspace { readonly id: string; readonly root: string; readonly title: string; }
 export interface TaskConsumedSource { readonly sourceId: string; readonly kind: 'directory' | 'session' | 'archive'; readonly generation: string; }
-export interface TaskContextRecord { readonly createdAt: number; readonly workspace: TaskWorkspace | null; readonly mayContainData: boolean; readonly consumed: readonly TaskConsumedSource[]; }
+export interface TaskContextRecord { readonly createdAt: number; readonly workspace: TaskWorkspace | null; readonly mayContainData: boolean; readonly consumed: readonly TaskConsumedSource[]; readonly modelVision?: boolean; }
 export declare const TASK_CONTEXT_SPEC: Readonly<{ name: 'wechat_task_contexts_v1'; version: 1; layout: 'per-record'; tables: { tasks: { valueSchema: ZodType<TaskContextRecord> } } }>;
 export interface TaskWorkspaceGrant { readonly root: string; readonly title: string; readonly allowWechat: boolean; readonly confirmation: 'read-and-write-task-workspace'; }
 export interface TaskDirectoryGrant { readonly root: string; readonly title: string; readonly allowWechat: boolean; readonly confirmation: 'read-task-directory'; readonly sourceId?: string; }
@@ -26,12 +26,15 @@ export type TaskSource = { readonly sourceId: string; readonly title: string; re
 export interface TaskAccessState {
   readonly version: 1; readonly sessionId: string; readonly disposed: boolean; readonly prepared: boolean; readonly historyKnown: boolean;
   readonly workspace: TaskWorkspace | null; readonly allowWechat: boolean; readonly shareable: boolean; readonly sessionMayContainData: boolean;
-  readonly contextBlocked: boolean; readonly sources: readonly TaskSource[]; readonly lastError: TaskAccessErrorCode | null;
+  readonly contextBlocked: boolean; readonly modelVision?: boolean; readonly contentProcessing?: { readonly processed: number; readonly skipped: number } | null; readonly sources: readonly TaskSource[]; readonly lastError: TaskAccessErrorCode | null;
 }
 export type TaskSourceQuery = { readonly action: 'status' } | { readonly action: 'archive'; readonly query: ArchiveQuery }
+  | { readonly action: 'analyzeVoice'; readonly talker: string; readonly localId: string; readonly ts: number }
+  | { readonly action: 'analyzeMedia'; readonly talker: string; readonly localId: string; readonly ts: number }
   | { readonly action: 'session'; readonly sourceId: string; readonly query?: string; readonly limit?: number; readonly offset?: number };
 export type TaskFileRequest = { readonly action: 'list'; readonly sourceId?: string; readonly path?: string; readonly limit?: number }
   | { readonly action: 'read'; readonly sourceId?: string; readonly path: string }
+  | { readonly action: 'analyze'; readonly sourceId?: string; readonly path: string }
   | { readonly action: 'attach'; readonly sourceId?: string; readonly path: string }
   | { readonly action: 'create'; readonly path: string; readonly content: string }
   | { readonly action: 'write'; readonly reference: string; readonly content: string }
@@ -135,6 +138,7 @@ export interface TaskFirstTextAuditEvent extends Omit<TaskHistoryAuditEvent, 'sc
 }
 export declare const TASK_FIRST_TEXT_AUDIT_SPEC: Readonly<{ name: 'wechat_task_first_text_consents_v1'; version: 1; layout: 'per-record'; tables: { tasks: { valueSchema: ZodType<{ events: readonly TaskFirstTextAuditEvent[] }> } } }>;
 export interface TaskAccess {
+  setModelVision(id: string, enabled: boolean): Promise<TaskAccessState>;
   bindFirstTextSupport(id: string, probe: () => TaskFirstTextSupport): () => void;
   invalidateTextModel(id: string): void;
   stopTextContexts(id: string, request?: { revokeId: string }): Promise<TaskHistoricalResult | TaskFirstTextResult>;
@@ -184,6 +188,7 @@ export interface TaskAccess {
   canShare(id: string): boolean;
   prepare(id: string, session: Session, signal?: AbortSignal): Promise<void>;
   query(id: string, request: TaskSourceQuery, signal?: AbortSignal, destination?: 'local' | 'wechat', turn?: number | null): Promise<Readonly<Record<string, unknown>>>;
+  indexContent(id: string, signal?: AbortSignal): Promise<{ processed: number; skipped: number } | undefined>;
   file(id: string, request: TaskFileRequest, signal?: AbortSignal, destination?: 'local' | 'wechat', turn?: number | null): Promise<Readonly<Record<string, unknown>>>;
   inspectDeliverables(id: string, files: readonly { path: string; description?: string }[], signal: AbortSignal | undefined, turn: number, callId?: string): Promise<readonly TaskDeliverable[]>;
   captureDeliverables(id: string, declarations: readonly { callId: string; files: readonly { path: string; description?: string }[] }[], signal: AbortSignal | undefined, turn: number): Promise<readonly WeixinDeliveryDescriptor[]>;

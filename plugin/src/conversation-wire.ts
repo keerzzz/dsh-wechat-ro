@@ -28,7 +28,8 @@ export interface ConversationState {
 export interface QrMatrix { readonly rows: readonly string[]; readonly payloadKind: 'ilink-login'; }
 export interface GetConversationStateRequest { readonly sessionId?: string; }
 export interface ArchiveQuery {
-  readonly action: 'status' | 'contacts' | 'sessions' | 'messages' | 'search' | 'stats' | 'digest';
+  readonly action: 'status' | 'contacts' | 'sessions' | 'messages' | 'search' | 'stats' | 'digest' | 'content' | 'contentStats' | 'media';
+  readonly sourceKind?: 'messages' | 'moments' | 'favorites' | 'miniprogram' | 'voice';
   readonly talker?: string; readonly query?: string; readonly limit?: number;
   readonly offset?: number; readonly fromTs?: number; readonly toTs?: number;
 }
@@ -69,6 +70,7 @@ export interface TaskConversationState {
   readonly workspaces: readonly TaskWorkspace[]; readonly lastError: ConversationErrorCode | null;
 }
 export type TaskConversationAction = { readonly kind: 'task' } & (
+  | { readonly action: 'setModelVision'; readonly sessionId: string; readonly enabled: boolean; readonly confirmation: 'analyze-selected-media-with-current-model' }
   | { readonly action: 'setDailyCardTime'; readonly sessionId: string; readonly time: string }
   | { readonly action: 'refreshDailyCards'; readonly sessionId: string }
   | { readonly action: 'importLocalHistory'; readonly sessionId: string; readonly autoUpdate: boolean; readonly allowWechat: boolean; readonly confirmation: 'import-own-wechat-history' }
@@ -100,7 +102,7 @@ export type TaskConversationAction = { readonly kind: 'task' } & (
   | { readonly action: 'setSharing'; readonly sessionId: string; readonly allowWechat: true; readonly firstTextConsentId: string; readonly confirmation: 'share-reviewed-first-task-text' }
   | { readonly action: 'pollTextOnce'; readonly sessionId: string; readonly allowSharedContext: true; readonly firstTextConsentId: string; readonly confirmation: 'poll-one-text-reply-with-first-task-text' }
   | { readonly action: 'querySource'; readonly sessionId: string; readonly query: TaskSourceQuery }
-  | { readonly action: 'queryFiles'; readonly sessionId: string; readonly query: Extract<TaskFileRequest, { readonly action: 'list' | 'read' }> }
+  | { readonly action: 'queryFiles'; readonly sessionId: string; readonly query: Extract<TaskFileRequest, { readonly action: 'list' | 'read' | 'analyze' }> }
 );
 export type TaskConversationActionResult =
   | { readonly ok: true; readonly state: TaskConversationState; readonly result?: JsonObject; readonly qr?: QrMatrix }
@@ -126,7 +128,7 @@ export interface TaskConversationWire {
   readonly firstTextSelectionSchema: z.ZodType<TaskFirstTextModelSelection>;
   readonly firstTextModelRequestSchema: z.ZodType<TaskFirstTextModelRequest>;
   readonly sourceQuerySchema: z.ZodType<TaskSourceQuery>;
-  readonly fileQuerySchema: z.ZodType<Extract<TaskFileRequest, { readonly action: 'list' | 'read' }>>;
+  readonly fileQuerySchema: z.ZodType<Extract<TaskFileRequest, { readonly action: 'list' | 'read' | 'analyze' }>>;
 }
 export type ConversationMethod = 'getConversationState' | 'conversationAction';
 export interface ConversationMethodSpec { readonly method: ConversationMethod; readonly description: string; }

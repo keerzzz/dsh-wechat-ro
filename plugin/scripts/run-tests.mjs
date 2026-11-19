@@ -55,6 +55,8 @@ try {
   for (const script of ['check-quality', 'check-structure', 'smoke-host', 'smoke-client', 'test-host-hardening', 'test-contracts', 'test-channel']) run(script, process.execPath, [join(ROOT, 'scripts', script + '.mjs')])
   for (const script of ['test-unconfigured-deployment', 'test-native-unconfigured', 'test-real-harness-client', 'test-weixin-api', 'test-weixin-media', 'test-weixin-channel', 'test-weixin-updates-diagnostic', 'test-weixin-dsh', 'test-weixin-admin', 'test-weixin-admin-ui', 'test-auto-connection', 'test-auto-share-scope', 'test-task-history', 'test-historical-drain', 'test-local-history', 'test-daily-cards']) run(script, process.execPath, ['--unhandled-rejections=strict', '--test', join(ROOT, 'scripts', script + '.mjs')])
   for (const script of ['test-archive-access', 'test-session-bridge', 'test-task-context', 'test-conversation-client', 'test-protocol-boundaries', 'test-conversation-host', 'test-qr-renderer']) run(script, process.execPath, ['--unhandled-rejections=strict', join(ROOT, 'scripts', script + '.mjs')])
+  run('test-content-sources', process.execPath, [join(ROOT, 'scripts/test-content-sources.mjs')])
+  run('test-content-analysis', process.execPath, [join(ROOT, 'scripts/test-content-analysis.mjs')])
   run('test-conversation-navigation-dispose', process.execPath, ['--unhandled-rejections=strict', join(ROOT, 'scripts/test-conversation-client.mjs')], { ...env, WECHAT_TEST_NAVIGATION_DISPOSE_PROBE: '1' })
   const data = join(base, 'data-evidence')
   mkdirSync(data, { mode: 0o700 })

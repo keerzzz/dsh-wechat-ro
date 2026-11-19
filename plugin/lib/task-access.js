@@ -1,11 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, opendir } from 'node:fs/promises';
+import { lstat, opendir, readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { z } from 'zod';
 import { createArchiveAccess, ArchiveAccessError, validateArchiveRoot } from './archive-access.js';
 import { describeWeixinMedia, WEIXIN_MEDIA_LIMITS } from './weixin-media.js';
 import { createTaskHistoryAuthority } from './task-history.js';
+import { analyzeContent, cacheHistoryAnalysis, modelImages, readLocalMedia, CONTENT_ANALYSIS_LIMITS } from './content-analysis.js';
+import { readArchiveVoice, readArchiveResource } from './archive-query-worker.js';
 export { TASK_HISTORY_AUDIT_SPEC, TASK_FIRST_TEXT_AUDIT_SPEC } from './task-history.js';
 
 export const TASK_PRESET_ID = 'dsh-wechat-task-v1';
@@ -20,6 +23,8 @@ const MESSAGES = Object.freeze({
   'byte-budget-exceeded': 'The task data byte budget was exceeded.', 'event-budget-exceeded': 'The source conversation exceeds the event budget.',
   'history-unavailable': 'Task context history cannot be proved or persisted.', 'share-forbidden': 'The whole task context is not authorized for WeChat.',
   'source-failed': 'The authorized source could not be read.', 'write-failed': 'The authorized file could not be written.',
+  'analysis-unavailable': 'Selected media is unavailable. Check its download, local runtime and media key.',
+  'analysis-failed': 'Local media analysis failed. Check the file format and local model setup.',
   'query-budget-exceeded': 'The archive query exceeded its read budget. Choose a contact or a smaller date range.',
   'revoked': 'Task source permission changed.', 'aborted': 'Task data access was cancelled.', 'disposed': 'Task data access is closed.',
   'busy': 'Task data access is busy.', 'not-produced': 'This file was not produced by the current task turn.',
@@ -32,7 +37,9 @@ const safeError = (error, fallback) => error instanceof TaskAccessError ? error 
 const sourceRecord = z.object({ sourceId: z.string().min(1).max(80), kind: z.enum(['directory', 'session', 'archive']), generation: z.string().uuid() }).strict();
 const workspaceRecord = z.object({ id: z.string().min(1).max(256), root: z.string().min(1).max(4096), title: z.string().min(1).max(160) }).strict();
 export const TASK_CONTEXT_SPEC = Object.freeze({ name: 'wechat_task_contexts_v1', version: 1, layout: 'per-record', tables: {
-  tasks: { valueSchema: z.object({ createdAt: z.number().int().nonnegative(), workspace: workspaceRecord.nullable(), mayContainData: z.boolean(), consumed: z.array(sourceRecord).max(1024) }).strict() },
+  tasks: { valueSchema: z.object({ createdAt: z.number().int().nonnegative(), workspace: workspaceRecord.nullable(), mayContainData: z.boolean(), consumed: z.array(sourceRecord).max(1024), modelVision: z.boolean().optional(),
+    contentProgress: z.object({ scope: z.string().regex(/^[a-f0-9]{64}$/), processed: z.number().int().nonnegative(), skipped: z.number().int().nonnegative(), retryAt: z.number().int().nonnegative(),
+      cursors: z.array(z.object({ kind: z.enum(['voice', 'messages']), toTs: z.number().int().nonnegative().nullable(), offset: z.number().int().min(0).max(10000) }).strict()).length(2) }).strict().optional() }).strict() },
 } });
 const titleSchema = z.string().trim().min(1).max(160).refine(value => !/[\0\r\n]/u.test(value));
 const directorySchema = z.object({ root: z.string(), title: titleSchema, allowWechat: z.boolean(), confirmation: z.literal('read-task-directory'), sourceId: z.string().uuid().optional() }).strict();
@@ -45,16 +52,19 @@ const contentSchema = z.string().refine(value => !value.includes('\0') && Buffer
 const fileRequestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list'), sourceId: sourceIdSchema.default('workspace'), path: filePathSchema.optional(), limit: z.number().int().min(1).max(100).default(50) }).strict(),
   z.object({ action: z.literal('read'), sourceId: sourceIdSchema.default('workspace'), path: filePathSchema }).strict(),
+  z.object({ action: z.literal('analyze'), sourceId: sourceIdSchema.default('workspace'), path: filePathSchema }).strict(),
   z.object({ action: z.literal('attach'), sourceId: sourceIdSchema.default('workspace'), path: filePathSchema }).strict(),
   z.object({ action: z.literal('create'), path: filePathSchema, content: contentSchema }).strict(),
   z.object({ action: z.literal('write'), reference: z.string().uuid(), content: contentSchema }).strict(),
   z.object({ action: z.literal('edit'), reference: z.string().uuid(), oldString: z.string().min(1).refine(value => Buffer.byteLength(value) <= 65536), newString: contentSchema, replaceAll: z.boolean().default(false) }).strict(),
 ]);
-const archiveQuerySchema = z.object({ action: z.enum(['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest']), talker: z.string().optional(), query: z.string().optional(),
+const archiveQuerySchema = z.object({ action: z.enum(['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest', 'content', 'contentStats', 'media']), sourceKind: z.enum(['messages', 'moments', 'favorites', 'miniprogram', 'voice', 'image', 'video']).optional(), talker: z.string().optional(), query: z.string().optional(),
   limit: z.number().int().min(1).max(100).optional(), offset: z.number().int().min(0).max(10000).optional(), fromTs: z.number().int().nonnegative().optional(), toTs: z.number().int().nonnegative().optional() }).strict();
 const sourceQuerySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('status') }).strict(),
   z.object({ action: z.literal('archive'), query: archiveQuerySchema }).strict(),
+  z.object({ action: z.literal('analyzeVoice'), talker: z.string().min(1).max(256), localId: z.string().regex(/^[0-9]{1,20}$/), ts: z.number().int().nonnegative() }).strict(),
+  z.object({ action: z.literal('analyzeMedia'), talker: z.string().min(1).max(256), localId: z.string().regex(/^[0-9]{1,20}$/), ts: z.number().int().nonnegative() }).strict(),
   z.object({ action: z.literal('session'), sourceId: sourceIdSchema, query: z.string().trim().min(1).max(512).optional(), limit: z.number().int().min(1).max(50).default(20), offset: z.number().int().min(0).max(10000).default(0) }).strict(),
 ]);
 const parsed = (schema, value) => { const result = schema.safeParse(value); if (!result.success) fail('invalid-request'); return result.data; };
@@ -159,11 +169,11 @@ export function createTaskAccess(ctx, options = {}) {
     if (destination !== 'local' && destination !== 'wechat') fail('invalid-request');
     if (destination === 'wechat' && (!source.allowWechat || !canShare(e.id))) fail('share-forbidden');
   }
-  function run(e, outer, work, fallback = 'source-failed') {
+  function run(e, outer, work, fallback = 'source-failed', timeoutMs = TASK_ACCESS_LIMITS.timeoutMs) {
     alive(outer);
     if (operations.size >= 4) fail('busy');
     const control = e.control;
-    const signal = AbortSignal.any([lifetime.signal, control.signal, AbortSignal.timeout(TASK_ACCESS_LIMITS.timeoutMs), ...(outer ? [outer] : [])]);
+    const signal = AbortSignal.any([lifetime.signal, control.signal, AbortSignal.timeout(timeoutMs), ...(outer ? [outer] : [])]);
     const promise = Promise.resolve().then(() => { alive(signal); return work(signal); }).then(value => {
       if (e.control !== control || control.signal.aborted) fail('revoked');
       alive(signal); e.lastError = null; return value;
@@ -351,7 +361,7 @@ export function createTaskAccess(ctx, options = {}) {
       return await run(e, signal, async current => {
         await archive.grant(id, raw, current);
         alive(current);
-        e.sources.set('archive', { sourceId: 'archive', kind: 'archive', generation: randomUUID(), title: 'WeChat archive', allowWechat: raw.allowWechat === true });
+        e.sources.set('archive', { sourceId: 'archive', kind: 'archive', generation: randomUUID(), root: raw.root, title: 'WeChat archive', allowWechat: raw.allowWechat === true });
         return getState(id);
       });
     } finally { e.mutation = false; }
@@ -364,6 +374,7 @@ export function createTaskAccess(ctx, options = {}) {
     try {
       await archive.refresh(id, root, signal);
       if (e.sources.get('archive') !== source) fail('revoked');
+      source.root = root;
       return getState(id);
     } finally { e.mutation = false; }
   }
@@ -411,8 +422,17 @@ export function createTaskAccess(ctx, options = {}) {
     return { version: 1, sessionId: id, disposed, prepared: !disposed && e.prepared, historyKnown: e.historyKnown,
       workspace: e.workspace ? { ...e.workspace } : null, allowWechat: !disposed && e.shareContext, shareable: canShare(id),
       sessionMayContainData: e.consumed.size > 0, contextBlocked: !e.historyKnown || [...e.consumed.values()].some(item => !consumedSourceCurrent(e, item)),
+      modelVision: table?.get(id)?.modelVision === true,
+      contentProcessing: table?.get(id)?.contentProgress ? { processed: table.get(id).contentProgress.processed, skipped: table.get(id).contentProgress.skipped } : null,
       sources: disposed ? [] : [...e.sources.values()].map(source => ({ sourceId: source.sourceId, kind: source.kind, title: source.title, allowWechat: source.allowWechat,
         ...(source.kind === 'directory' ? { root: source.root, write: source.write } : source.kind === 'session' ? { sessionId: source.sessionId } : { archive: archive.getState(id) }) })), lastError: e.lastError };
+  }
+  async function setModelVision(id, enabled) {
+    const e = entry(id);
+    if (typeof enabled !== 'boolean' || !e.prepared || !e.historyKnown) fail('not-prepared');
+    if (operations.size || e.mutation) fail('busy');
+    await table.put(id, { ...table.get(id), modelVision: enabled });
+    return getState(id);
   }
   async function prepare(id, session, signal) {
     const e = entry(id); alive(signal);
@@ -443,6 +463,7 @@ export function createTaskAccess(ctx, options = {}) {
   }
   async function query(id, raw, outer, destination = 'local', turn) {
     const request = parsed(sourceQuerySchema, raw), e = entry(id);
+    if (request.action !== 'status') e.contentBatch?.abort();
     alive(outer);
     if (request.action === 'status') {
       const state = getState(id);
@@ -451,14 +472,38 @@ export function createTaskAccess(ctx, options = {}) {
           ...(source.kind === 'directory' ? { write: source.write } : {}) })),
         ...(options.archiveFreshness?.(id) ? { historyFreshness: options.archiveFreshness(id) } : {}) });
     }
-    const source = e.sources.get(request.action === 'archive' ? 'archive' : request.sourceId);
+    const source = e.sources.get(['archive', 'analyzeVoice', 'analyzeMedia'].includes(request.action) ? 'archive' : request.sourceId);
     permission(e, source, destination);
     if (request.action === 'session' && source.kind !== 'session') fail('not-granted');
-    if (request.action === 'archive' && options.beforeArchiveQuery) {
+    if (['archive', 'analyzeVoice', 'analyzeMedia'].includes(request.action) && options.beforeArchiveQuery) {
       await options.beforeArchiveQuery(id, outer, turn);
       permission(e, source, destination);
     }
     return run(e, outer, async signal => {
+      if (request.action === 'analyzeMedia') {
+        const resource = readArchiveResource(source.root, archive.getState(id), request);
+        let media, analysis;
+        try { media = await readLocalMedia(source.root, resource, signal); analysis = await analyzeContent(media.name, media.bytes, signal); }
+        catch (error) { fail(['LOCAL_CONTENT_RUNTIME_REQUIRED', 'LOCAL_ASR_MODEL_REQUIRED', 'LOCAL_MEDIA_KEY_REQUIRED', 'LOCAL_MEDIA_NOT_DOWNLOADED'].includes(error.message) ? 'analysis-unavailable' : 'analysis-failed'); }
+        await mark(e, source); permission(e, source, destination);
+        let images = [];
+        if (table.get(id)?.modelVision === true) images = await modelImages(media.name, media.bytes, analysis, ctx.get ? ctx.get('attachments') : ctx.attachments);
+        permission(e, source, destination);
+        await cacheHistoryAnalysis(source.root, resource, analysis, media);
+        permission(e, source, destination);
+        return { action: 'analyzeMedia', sourceKind: resource.sourceKind, quality: media.quality, talker: request.talker, id: request.localId, ts: request.ts, ...analysis, images,
+          citation: resource.citation };
+      }
+      if (request.action === 'analyzeVoice') {
+        const bytes = readArchiveVoice(source.root, archive.getState(id), request);
+        let analysis;
+        try { analysis = await analyzeContent('voice.silk', bytes, signal); }
+        catch (error) { fail(['LOCAL_CONTENT_RUNTIME_REQUIRED', 'LOCAL_ASR_MODEL_REQUIRED', 'LOCAL_MEDIA_KEY_REQUIRED'].includes(error.message) ? 'analysis-unavailable' : 'analysis-failed'); }
+        await mark(e, source); permission(e, source, destination);
+        const citation = await cacheHistoryAnalysis(source.root, request, analysis);
+        permission(e, source, destination);
+        return { action: 'analyzeVoice', talker: request.talker, id: request.localId, ts: request.ts, ...analysis, ...(citation ? { citation } : {}) };
+      }
       if (request.action === 'archive') {
         // Archive owns the durable consumption barrier after successful work,
         // before returning a page. Failed queries have not supplied Task data.
@@ -497,7 +542,64 @@ export function createTaskAccess(ctx, options = {}) {
           rows, returned: rows.length, offset: request.offset, limit: request.limit, hasMore: request.offset + rows.length < candidates.length, truncated,
           omitted: 'system, developer, tools, reasoning, media and unknown user-message producers', sourceReadByteBounded: false, bytes };
       } finally { observation[Symbol.dispose](); }
-    });
+    }, 'source-failed', ['analyzeVoice', 'analyzeMedia'].includes(request.action) ? CONTENT_ANALYSIS_LIMITS.timeoutMs : TASK_ACCESS_LIMITS.timeoutMs);
+  }
+  async function indexContent(id, outer) {
+    const e = entry(id), source = e.sources.get('archive');
+    permission(e, source, 'local');
+    if (e.contentBatch) return;
+    const control = new AbortController(); e.contentBatch = control;
+    const signal = AbortSignal.any([control.signal, ...(outer ? [outer] : [])]);
+    try {
+      return await run(e, signal, async workSignal => {
+        const manifest = JSON.parse(await readFile(join(source.root, '.wechat-ro-manifest.json'), 'utf8'));
+        if (!/^[a-f0-9]{12}$/.test(manifest.account_ref)) fail('analysis-unavailable');
+        const grant = archive.getState(id), scope = digest(JSON.stringify([manifest.account_ref, grant.allConversations, grant.talkers, grant.fromTs, grant.toTs]));
+        const stored = table.get(id)?.contentProgress;
+        const progress = stored?.scope === scope ? structuredClone(stored) : { scope, processed: 0, skipped: 0, retryAt: 0,
+          cursors: [{ kind: 'voice', toTs: null, offset: 0 }, { kind: 'messages', toTs: null, offset: 0 }] };
+        if (progress.retryAt > Date.now()) return;
+        let processed = 0, inspected = 0, exhausted = 0;
+        // A checkpoint is a timestamp plus the offset within that timestamp.
+        // New messages cannot shift the older work remaining after a restart.
+        for (const cursor of progress.cursors) {
+          if (processed >= 2 || inspected >= 20) break;
+          let kindProcessed = 0;
+          const page = await archive.query(id, { action: 'media', sourceKind: cursor.kind, limit: 10, offset: cursor.offset,
+            ...(cursor.toTs !== null ? { toTs: cursor.toTs } : {}) }, workSignal, 'local');
+          if (!page.rows.length) { cursor.toTs = null; cursor.offset = 0; exhausted++; continue; }
+          for (const row of page.rows) {
+            if (kindProcessed >= 1 || inspected >= 20) break;
+            permission(e, source, 'local'); alive(workSignal); inspected++;
+            const request = { talker: row.talker, localId: row.id, ts: row.ts };
+            try {
+              const resource = cursor.kind === 'voice' ? request : readArchiveResource(source.root, archive.getState(id), request);
+              const media = cursor.kind === 'voice' ? null : await readLocalMedia(source.root, resource, workSignal);
+              const bytes = media?.bytes ?? readArchiveVoice(source.root, archive.getState(id), request);
+              const prior = await readFile(join(homedir(), '.local/share/dsh-wechat-ro/content-history', manifest.account_ref, row.citation.recordRef + '.json'), 'utf8')
+                .then(JSON.parse).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+              if (prior?.version !== 4 || (prior.sourceSha256 ?? prior.sha256) !== digest(bytes) || media && prior.sourceIdentity !== media.sourceIdentity) {
+                const analysis = await analyzeContent(media?.name ?? 'voice.silk', bytes, workSignal);
+                permission(e, source, 'local'); alive(workSignal);
+                await mark(e, source);
+                await cacheHistoryAnalysis(source.root, resource, analysis, media);
+                progress.processed++; processed++; kindProcessed++;
+              }
+            } catch (error) {
+              permission(e, source, 'local'); alive(workSignal);
+              if (['LOCAL_CONTENT_RUNTIME_REQUIRED', 'LOCAL_ASR_MODEL_REQUIRED', 'LOCAL_MEDIA_KEY_REQUIRED'].includes(error.message)) fail('analysis-unavailable');
+              progress.skipped++;
+            }
+            if (cursor.toTs === row.ts) cursor.offset++;
+            else { cursor.toTs = row.ts; cursor.offset = 1; }
+            if (cursor.offset > 10000) fail('query-budget-exceeded');
+            await table.put(id, { ...table.get(id), contentProgress: progress });
+          }
+        }
+        if (exhausted === 2) { progress.retryAt = Date.now() + 3600000; await table.put(id, { ...table.get(id), contentProgress: progress }); }
+        return { processed: progress.processed, skipped: progress.skipped };
+      }, 'analysis-failed', CONTENT_ANALYSIS_LIMITS.timeoutMs);
+    } finally { if (e.contentBatch === control) e.contentBatch = null; }
   }
   function file(id, raw, outer, destination = 'local', turn = null) {
     const request = parsed(fileRequestSchema, raw), e = entry(id);
@@ -536,12 +638,26 @@ export function createTaskAccess(ctx, options = {}) {
         return { action: 'list', untrusted: true, sourceId: source.sourceId, path, rows, truncated, limit: request.limit };
       }
       const before = await current.fs.stat(current.target, signal);
-      if (request.action === 'read' || request.action === 'attach') {
+      if (request.action === 'read' || request.action === 'attach' || request.action === 'analyze') {
         if (!current.identity?.isFile() || before?.type !== 'file') fail('not-file');
-        const bytes = await current.fs.readBytes(current.target, signal, request.action === 'attach' ? WEIXIN_MEDIA_LIMITS.maxBytes : TASK_ACCESS_LIMITS.maxBytes);
+        const bytes = await current.fs.readBytes(current.target, signal, request.action === 'analyze' ? CONTENT_ANALYSIS_LIMITS.maxBytes : request.action === 'attach' ? WEIXIN_MEDIA_LIMITS.maxBytes : TASK_ACCESS_LIMITS.maxBytes);
         const after = await current.fs.stat(current.target, signal);
         const next = await boundary(source, path, signal);
         if (before.version !== after?.version || !sameIdentity(current.identity, next.identity)) fail('file-changed');
+        if (request.action === 'analyze') {
+          let analysis;
+          try { analysis = await analyzeContent(path, bytes, signal); }
+          catch (error) { fail(['LOCAL_CONTENT_RUNTIME_REQUIRED', 'LOCAL_ASR_MODEL_REQUIRED', 'LOCAL_MEDIA_KEY_REQUIRED'].includes(error.message) ? 'analysis-unavailable' : 'analysis-failed'); }
+          permission(e, source, destination); await boundary(source, path, signal);
+          let images;
+          if (table.get(id)?.modelVision === true && (/\.(?:png|jpe?g|webp|gif)$/i.test(path) || analysis.imageFiles?.length)) {
+            const attachments = ctx.get ? ctx.get('attachments') : ctx.attachments;
+            images = await modelImages(path, bytes, analysis, attachments);
+            permission(e, source, destination); alive(signal);
+          }
+          const { imageFiles, ...value } = analysis;
+          return { action: 'analyze', sourceId: source.sourceId, path, ...value, ...(images?.length ? { images } : {}) };
+        }
         if (request.action === 'attach') {
           const description = describeWeixinMedia(path.split('/').at(-1), bytes);
           if (e.outputs.size >= TASK_ACCESS_LIMITS.maxReferences && !e.outputs.has(current.fullPath)) fail('busy');
@@ -552,9 +668,9 @@ export function createTaskAccess(ctx, options = {}) {
         let text; try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { fail('not-file'); }
         if (text.includes('\0')) fail('not-file');
         if (e.references.size >= TASK_ACCESS_LIMITS.maxReferences) fail('busy');
-        const id = randomUUID(); e.references.set(id, { sourceId: source.sourceId, generation: source.generation, path, version: after.version, text });
+        const referenceId = randomUUID(); e.references.set(referenceId, { sourceId: source.sourceId, generation: source.generation, path, version: after.version, text });
         permission(e, source, destination);
-        return { action: 'read', untrusted: true, sourceId: source.sourceId, path, text, bytes: bytes.byteLength, truncated: false, reference: id };
+        return { action: 'read', untrusted: true, sourceId: source.sourceId, path, text, bytes: bytes.byteLength, truncated: false, reference: referenceId };
       }
       if (request.action === 'create' ? before !== undefined || current.identity !== undefined : !current.identity?.isFile() || before?.type !== 'file' || before.version !== reference.version) fail('file-changed');
       if (request.action === 'edit') {
@@ -581,7 +697,7 @@ export function createTaskAccess(ctx, options = {}) {
       e.outputs.set(current.fullPath, { path, sourceId: source.sourceId, generation: source.generation, version: result.version, turn, sha256: digest(savedBytes) });
       if (reference) e.references.delete(request.reference);
       return { action: request.action, path, produced: true, turn, bytes: savedBytes.byteLength };
-    }, writing ? 'write-failed' : 'source-failed');
+    }, writing ? 'write-failed' : 'source-failed', request.action === 'analyze' ? CONTENT_ANALYSIS_LIMITS.timeoutMs : TASK_ACCESS_LIMITS.timeoutMs);
   }
   async function readOutput(e, full, produced, signal, destination = 'local') {
     const source = produced && e.sources.get(produced.sourceId);
@@ -668,8 +784,8 @@ export function createTaskAccess(ctx, options = {}) {
     disposal = (async () => { await Promise.allSettled([...operations]); await historical.dispose(); await archive.dispose(); if (opening) await opening.catch(() => {}); if (domain) await domain.close(); })();
     return disposal;
   }
-  return Object.freeze({ findWorkspaceTasks, authorizeAutoWorkspace, grantWorkspace: (id, raw, signal) => grantDirectory(id, raw, signal, true), grantDirectory, grantSession, grantSnapshot, refreshSnapshot,
-    revoke, revokeAll, setSharing, getState, canShare, prepare, query, file, inspectDeliverables, captureDeliverables, prepareDelivery, releaseDeliveries, contextSignal, getWorkspace,
+  return Object.freeze({ setModelVision, findWorkspaceTasks, authorizeAutoWorkspace, grantWorkspace: (id, raw, signal) => grantDirectory(id, raw, signal, true), grantDirectory, grantSession, grantSnapshot, refreshSnapshot,
+    revoke, revokeAll, setSharing, getState, canShare, prepare, query, indexContent, file, inspectDeliverables, captureDeliverables, prepareDelivery, releaseDeliveries, contextSignal, getWorkspace,
     bindHistorySupport,
     getHistoricalState: id => { entry(id); return historical.status(id); },
     reviewHistoricalContext: (id, signal) => { entry(id); return historical.review(id, signal); },

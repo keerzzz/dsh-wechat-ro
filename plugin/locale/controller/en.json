@@ -2,5 +2,32 @@
   "meta": {
     "title": "WeChat snapshot and conversation service",
     "description": "Provides strictly validated read-only snapshot and connection actions for the native sidebar. No reads or networking by default. Independent decrypted copies require explicit Session grants, and WeChat connection and messaging need separate confirmations."
-  }
+  },
+  "historySources": "History sources",
+  "historyMoments": "Moments",
+  "historyMiniprogram": "Mini programs",
+  "historyFavorites": "Favorites",
+  "historyContacts": "Contacts",
+  "historyCount": "{count} records",
+  "historyCountPending": "Awaiting data",
+  "historySearch": "Search this source",
+  "historySearchButton": "Search and update",
+  "historyLoading": "Loading this source…",
+  "historySourceFailed": "Could not read this source. Retry or import WeChat history again.",
+  "historyEmptyHint": "Try another keyword. Import history again to add the new sources.",
+  "historyUntitled": "Content record",
+  "historyMediaCount": "{count} media items",
+  "historyMomentsScope": "Moments cached on this computer.",
+  "historyMiniScope": "Mini-program cards, titles, links and extracted text from chats and favorites.",
+  "historyFavoritesScope": "Favorite content and origin. Dates use the favorite database update time.",
+  "historyContactsScope": "Contact remarks, display names and WeChat IDs.",
+  "historySourceEmpty": "No matching records",
+  "historyVoice": "Voice",
+  "historyVoiceScope": "Transcribe a selected voice locally. The next history update adds its text to search.",
+  "historyReadVoices": "Load voice records",
+  "historyTranscribe": "Transcribe locally",
+  "historyModelVision": "Use the current model to understand selected images and video frames",
+  "historyTranscriptCitation": "View voice record and transcript citation",
+  "historyBatchHint": "Automatic history updates process local transcription, OCR and indexing in idle batches.",
+  "historyBatchProgress": "Local batch index: {processed} processed, {skipped} unavailable records skipped."
 }

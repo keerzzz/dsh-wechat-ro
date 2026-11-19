@@ -54,7 +54,7 @@ function capture(root, rawLimits, forbiddenRoots) {
             entries.push([relativePath, 'file', identity(before)]);
             if (/\.db-(?:wal|shm|journal)$/i.test(item.name)) fail('unsupported-layout');
             if (item.name.endsWith('.db')) {
-              if (!['contact/contact.db', 'session/session.db'].includes(relativePath) && !/^message\/[a-zA-Z0-9_.-]+\.db$/.test(relativePath)) fail('unsupported-layout');
+              if (!['contact/contact.db', 'session/session.db', 'sns/sns.db', 'favorite/favorite.db', 'content/content.db'].includes(relativePath) && !/^message\/[a-zA-Z0-9_.-]+\.db$/.test(relativePath)) fail('unsupported-layout');
               const dbFd = opened(path, fileFlags), after = fstatSync(dbFd, { bigint: true });
               if (!after.isFile() || after.nlink !== 1n || identity(before) !== identity(after)) fail('snapshot-changed');
               if (after.size < 100n || after.size > BigInt(limits.maxDbBytes)) fail('file-budget-exceeded');
@@ -274,6 +274,17 @@ function statistics(catalog, scope, q, budget) {
     }
   });
   if (!matched) fail('unsupported-schema');
+  if (catalog.files.has('content/content.db')) withDb(catalog, 'content/content.db', db => {
+    const a = acl('talker', scope, q), ti = timed('ts', q);
+    for (const row of db.prepare('SELECT record_ref,kind,ts,title,content,url FROM records WHERE (' + a.sql + ') AND (' + ti.sql + ') ORDER BY record_ref').iterate(...a.params, ...ti.params)) {
+      if (++budget.count > budget.max) fail('row-budget-exceeded');
+      const day = days.get(new Date((row.ts + 28800) * 1000).toISOString().slice(0, 10));
+      if (!day) continue;
+      day.contentCounts ??= {};
+      day.contentCounts[row.kind] = (day.contentCounts[row.kind] ?? 0) + 1;
+      day.contentSignature = digest((day.contentSignature ?? '') + JSON.stringify(row));
+    }
+  });
   return [...days.values()].map(day => {
     const conversations = [...day.conversations.values()].sort((a, b) => b.messageCount - a.messageCount || a.talker.localeCompare(b.talker));
     return { ...day, activeContacts: conversations.filter(c => !c.talker.endsWith('@chatroom')).length,
@@ -367,10 +378,88 @@ function messages(catalog, scope, q, budget) {
   rows.sort((a, b) => b.ts - a.ts || compare(a.talker, b.talker) || compare(a.id, b.id) || compare(a._file, b._file) || compare(a._rowRef, b._rowRef));
   return rows.slice(q.offset).map(({ _file, _rowRef, ...row }) => row);
 }
+function contentRows(catalog, scope, q, budget) {
+  if (!catalog.files.has('content/content.db')) return [];
+  return withDb(catalog, 'content/content.db', db => {
+    const a = acl('talker', scope, q), ti = timed('ts', q), clauses = [a.sql], params = [...a.params];
+    // Collections contain items without an original date. Include those only
+    // when the caller has no date filter; never invent a creation timestamp.
+    if (q.fromTs !== null || q.toTs !== null) { clauses.push(ti.sql); params.push(...ti.params); }
+    if (q.sourceKind) { clauses.push('kind = ?'); params.push(q.sourceKind); }
+    if (q.query !== undefined) {
+      clauses.push("instr(lower(coalesce(title,'') || char(10) || coalesce(content,'') || char(10) || coalesce(url,'')),lower(?))>0"); params.push(q.query);
+    }
+    const where = clauses.map(c => '(' + c + ')').join(' AND ');
+    if (q.action === 'contentStats') return selected(db, 'SELECT kind AS sourceKind,count(*) AS total,max(ts) AS latestTs FROM records WHERE ' + where + ' GROUP BY kind ORDER BY kind', params, budget);
+    return selected(db, 'SELECT record_ref,kind,talker,ts,substr(title,1,256) AS title,substr(content,1,1024) AS content,length(content)>1024 AS cut,substr(url,1,2048) AS url,metadata FROM records WHERE '
+      + where + ' ORDER BY ts DESC,record_ref LIMIT ? OFFSET ?', [...params, q.limit + 1, q.offset], budget)
+      .map(row => ({ sourceKind: row.kind, talker: row.talker, ts: row.ts,
+        localTime: row.ts === null ? null : localTime.format(new Date(row.ts * 1000)).replace(' ', 'T').replace(' GMT', ''),
+        title: row.title, content: row.content, contentTruncated: Boolean(row.cut), url: row.url,
+        metadata: JSON.parse(row.metadata), citation: { snapshotRef: catalog.metadata.fingerprint.slice(0, 24), recordRef: row.record_ref } }));
+  });
+}
+function voiceRows(catalog, scope, q, budget) {
+  return withDb(catalog, 'message/media_0.db', db => {
+    const ti = timed('create_time', q);
+    // acl quotes a single identifier. The joined username has a unique name,
+    // so use the unqualified column for the fixed Name2Id relation.
+    const allowed = acl('user_name', scope, q);
+    const rows = selected(db, 'SELECT n.user_name AS talker,v.local_id AS id,v.create_time AS ts FROM VoiceInfo v JOIN Name2Id n ON n.rowid=v.chat_name_id WHERE ('
+      + allowed.sql + ') AND (' + ti.sql + ') ORDER BY ts DESC,v.local_id DESC LIMIT ? OFFSET ?', [...allowed.params, ...ti.params, q.limit + 1, q.offset], budget);
+    return rows.map(row => ({ talker: row.talker, id: String(row.id), ts: row.ts, sourceKind: 'voice', type: '34',
+      content: '', localTime: localTime.format(new Date(row.ts * 1000)).replace(' ', 'T').replace(' GMT', ''),
+      citation: { snapshotRef: catalog.metadata.fingerprint.slice(0, 24), recordRef: digest('message/media_0.db/VoiceInfo/' + row.talker + '/' + row.id + '/' + row.ts + '/voice').slice(0, 32) } }));
+  });
+}
+function resourceRows(catalog, scope, q, budget) {
+  return withDb(catalog, 'message/message_resource.db', db => {
+    const allowed = acl('user_name', scope, q), ti = timed('message_create_time', q);
+    return selected(db, 'SELECT n.user_name AS talker,i.message_local_id AS id,i.message_create_time AS ts,i.message_local_type AS type FROM MessageResourceInfo i JOIN ChatName2Id n ON n.rowid=i.chat_id WHERE i.message_local_type IN(3,43) AND ('
+      + allowed.sql + ') AND (' + ti.sql + ') ORDER BY ts DESC,i.message_id DESC LIMIT ? OFFSET ?', [...allowed.params, ...ti.params, q.limit + 1, q.offset], budget)
+      .map(row => ({ talker: row.talker, id: String(row.id), ts: row.ts, type: String(row.type), sourceKind: row.type === 3 ? 'image' : 'video',
+        localTime: localTime.format(new Date(row.ts * 1000)).replace(' ', 'T').replace(' GMT', ''),
+        citation: { snapshotRef: catalog.metadata.fingerprint.slice(0, 24), recordRef: digest('message/message_resource.db/MessageResourceInfo/' + row.talker + '/' + row.id + '/' + row.ts).slice(0, 32) } }));
+  });
+}
+export function readArchiveResource(root, scope, request) {
+  if (!/^\d{1,20}$/.test(request.localId)) fail('invalid-request');
+  const q = effectiveQuery(scope, { action: 'media', talker: request.talker, fromTs: request.ts, toTs: request.ts, limit: 1, offset: 0 }, ARCHIVE_ACCESS_LIMITS);
+  const catalog = capture(root, ARCHIVE_ACCESS_LIMITS, []);
+  try {
+    const result = withDb(catalog, 'message/message_resource.db', db => {
+      const rows = db.prepare('SELECT i.message_local_type AS type,i.packed_info FROM MessageResourceInfo i JOIN ChatName2Id n ON n.rowid=i.chat_id WHERE n.user_name COLLATE BINARY=? AND i.message_local_id=? AND i.message_create_time=? AND i.message_local_type IN(3,43) LIMIT 2').all(q.talker, request.localId, request.ts);
+      if (rows.length !== 1) fail('unsupported-content');
+      const raw = Buffer.from(rows[0].packed_info || []);
+      // Observed protobuf: field 2, containing field 1 with a 32-byte hash.
+      if (raw.length !== 36 || raw.subarray(0, 4).toString('hex') !== '12220a20' || !/^[a-f0-9]{32}$/.test(raw.toString('ascii', 4))) fail('unsupported-content');
+      return { ...request, mediaHash: raw.toString('ascii', 4), sourceKind: rows[0].type === 3 ? 'image' : 'video',
+        citation: { snapshotRef: catalog.metadata.fingerprint.slice(0, 24), recordRef: digest('message/message_resource.db/MessageResourceInfo/' + request.talker + '/' + request.localId + '/' + request.ts).slice(0, 32) } };
+    });
+    const verified = capture(root, ARCHIVE_ACCESS_LIMITS, []);
+    try { if (verified.metadata.fingerprint !== catalog.metadata.fingerprint) fail('snapshot-changed'); } finally { verified.close(); }
+    return result;
+  } finally { catalog.close(); }
+}
+export function readArchiveVoice(root, scope, request) {
+  if (!/^\d{1,20}$/.test(request.localId)) fail('invalid-request');
+  const q = effectiveQuery(scope, { action: 'media', talker: request.talker, fromTs: request.ts, toTs: request.ts, limit: 1, offset: 0 }, ARCHIVE_ACCESS_LIMITS);
+  const catalog = capture(root, ARCHIVE_ACCESS_LIMITS, []);
+  try {
+    const voice = withDb(catalog, 'message/media_0.db', db => {
+      const rows = db.prepare('SELECT v.voice_data FROM VoiceInfo v JOIN Name2Id n ON n.rowid=v.chat_name_id WHERE n.user_name COLLATE BINARY=? AND v.local_id=? AND v.create_time=? LIMIT 2').all(q.talker, request.localId, request.ts);
+      if (rows.length !== 1 || !(rows[0].voice_data instanceof Uint8Array) || rows[0].voice_data.byteLength > 67108864) fail('unsupported-content');
+      return rows[0].voice_data;
+    });
+    const verified = capture(root, ARCHIVE_ACCESS_LIMITS, []);
+    try { if (verified.metadata.fingerprint !== catalog.metadata.fingerprint) fail('snapshot-changed'); } finally { verified.close(); }
+    return voice;
+  } finally { catalog.close(); }
+}
 function page(catalog, q, rawRows) {
   const rows = rawRows.slice(0, q.limit), hasMore = rawRows.length > q.limit;
   const value = { action: q.action, rows, limit: q.limit, offset: q.offset, returned: rows.length, hasMore, truncated: hasMore || rows.some(r => r.contentTruncated || r.summaryTruncated || r.displayNameTruncated),
-    ...(['messages', 'search', 'stats', 'digest'].includes(q.action) ? { timezone: 'Asia/Shanghai' } : {}),
+    ...(['messages', 'search', 'stats', 'digest', 'content'].includes(q.action) ? { timezone: 'Asia/Shanghai' } : {}),
     bytes: 0, scopeApplied: q.action === 'status' ? 'grant-metadata' : 'sql-before-rows', source: { kind: 'decrypted-wechat-archive', snapshotRef: catalog.metadata.fingerprint.slice(0, 24) }, untrusted: true };
   const measure = () => { for (let i = 0; i < 4; i++) value.bytes = Buffer.byteLength(JSON.stringify(value)); return value.bytes; };
   while (measure() > catalog.limits.maxBytes && rows.length) { rows.pop(); value.returned = rows.length; value.hasMore = true; value.truncated = true; }
@@ -383,10 +472,12 @@ function effectiveQuery(scope, query, limits) {
     || scope.talkers.some(value => !user(value)) || new Set(scope.talkers).size !== scope.talkers.length
     || (scope.allConversations ? scope.talkers.length !== 0 : scope.talkers.length === 0)
     || !timestamp(scope.fromTs) || !timestamp(scope.toTs) || (scope.fromTs !== null && scope.toTs !== null && scope.fromTs > scope.toTs)) fail('invalid-request');
-  if (!query || !['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest'].includes(query.action)
+  if (!query || !['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest', 'content', 'contentStats', 'media'].includes(query.action)
     || !Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > limits.maxRows
     || !Number.isSafeInteger(query.offset) || query.offset < 0 || query.offset > limits.maxOffset) fail('invalid-request');
   const q = { ...query, fromTs: query.fromTs ?? scope.fromTs, toTs: query.toTs ?? scope.toTs };
+  if (q.sourceKind !== undefined && (!['messages', 'moments', 'favorites', 'miniprogram', 'voice', 'image', 'video'].includes(q.sourceKind)
+    || !['content', 'search', 'contentStats', 'media'].includes(q.action))) fail('invalid-request');
   if (!timestamp(q.fromTs) || !timestamp(q.toTs)) fail('invalid-request');
   if ((scope.fromTs !== null && q.fromTs < scope.fromTs) || (scope.toTs !== null && q.toTs > scope.toTs)) fail('scope-forbidden');
   if (q.fromTs !== null && q.toTs !== null && q.fromTs > q.toTs) fail('invalid-request');
@@ -408,9 +499,45 @@ export function runArchiveQuery(payload, onReady) {
     if (q.action === 'status') rows = [{ readOnly: true, format: 'fixed-sql-plaintext', formatVerified: false, metadataOnly: true, allConversations: scope.allConversations, fromTs: scope.fromTs, toTs: scope.toTs }];
     else if (q.action === 'contacts') rows = contacts(catalog, scope, q, budget);
     else if (q.action === 'sessions') rows = sessions(catalog, scope, q, budget);
-    else if (q.action === 'messages' || q.action === 'search' || q.action === 'digest') rows = messages(catalog, scope, q, budget);
+    else if (q.action === 'media') rows = q.sourceKind === 'messages' ? resourceRows(catalog, scope, q, budget) : voiceRows(catalog, scope, q, budget);
+    else if (q.action === 'messages' || q.action === 'digest' || q.action === 'search' && q.sourceKind === 'messages') rows = messages(catalog, scope, q, budget);
+    else if (q.action === 'contentStats') {
+      rows = contentRows(catalog, scope, q, budget);
+      if (q.sourceKind === undefined && q.talker === undefined && q.fromTs === null && q.toTs === null) {
+        rows.push(withDb(catalog, 'contact/contact.db', db => {
+          const t = knownTable(db, catalog.limits, ['contact', 'friend', 'user', 'WCContact'], CONTACT, ['talker']), a = acl(t.cols.talker, scope, q);
+          return { sourceKind: 'contacts', total: db.prepare('SELECT count(*) AS total FROM ' + qi(t.name) + ' WHERE ' + a.sql).get(...a.params).total };
+        }));
+        if (catalog.files.has('message/media_0.db')) rows.push(withDb(catalog, 'message/media_0.db', db => {
+          const a = acl('user_name', scope, q);
+          return { sourceKind: 'voice', total: db.prepare('SELECT count(*) AS total FROM VoiceInfo v JOIN Name2Id n ON n.rowid=v.chat_name_id WHERE ' + a.sql).get(...a.params).total };
+        }));
+        if (catalog.files.has('message/message_resource.db')) rows.push(withDb(catalog, 'message/message_resource.db', db => {
+          const a = acl('user_name', scope, q);
+          return { sourceKind: 'media', total: db.prepare('SELECT count(*) AS total FROM MessageResourceInfo i JOIN ChatName2Id n ON n.rowid=i.chat_id WHERE i.message_local_type IN(3,43) AND (' + a.sql + ')').get(...a.params).total };
+        }));
+      }
+    }
+    else if (q.action === 'content' || q.action === 'search' && q.sourceKind) rows = contentRows(catalog, scope, q, budget);
+    else if (q.action === 'search') {
+      const window = { ...q, offset: 0, limit: q.limit + q.offset };
+      rows = [...messages(catalog, scope, window, budget), ...contentRows(catalog, scope, window, budget)]
+        .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0) || a.citation.recordRef.localeCompare(b.citation.recordRef)).slice(q.offset);
+    }
     else if (q.action === 'stats') rows = statistics(catalog, scope, q, budget);
     else fail('invalid-request');
+    if (q.action === 'media' && rows.length && catalog.files.has('content/content.db')) {
+      const texts = withDb(catalog, 'content/content.db', db => new Map(selected(db,
+        'SELECT record_ref,substr(content,1,1024) AS content,length(content)>1024 AS cut,metadata FROM records WHERE record_ref IN (' + rows.map(() => '?').join(',') + ')',
+        rows.map(row => row.citation.recordRef), budget).map(row => [row.record_ref, row])));
+      rows = rows.map(row => { const cached = texts.get(row.citation.recordRef); return cached ? { ...row, content: cached.content, contentTruncated: Boolean(cached.cut), metadata: JSON.parse(cached.metadata) } : row; });
+    }
+    const contentTalkers = [...new Set(rows.filter(row => row.sourceKind && row.talker).map(row => row.talker))];
+    if (contentTalkers.length && catalog.files.has('contact/contact.db')) {
+      const labels = new Map(contacts(catalog, { ...scope, allConversations: false, talkers: contentTalkers },
+        { ...q, talker: undefined, query: undefined, offset: 0, limit: contentTalkers.length }, budget).map(row => [row.talker, row.displayName]));
+      rows = rows.map(row => row.sourceKind ? { ...row, displayName: labels.get(row.talker) || row.talker } : row);
+    }
     const verified = capture(payload.root, payload.limits, payload.forbiddenRoots || []);
     try { if (verified.metadata.fingerprint !== catalog.metadata.fingerprint) fail('snapshot-changed'); } finally { verified.close(); }
     return page(catalog, q, rows);

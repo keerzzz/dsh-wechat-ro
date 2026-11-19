@@ -91,3 +91,22 @@ test('SQL source catalog separates account types and retains identities beyond t
     const scoped=(await access.query('scoped',range)).rows[0];assert.deepEqual(scoped.sources,[{talker:'zz_service',displayName:'zz_service',sourceKind:'service'}]);
   }finally{await access.dispose();rmSync(root,{recursive:true,force:true});}
 });
+
+test('content-only edits change the daily signature without changing chat counts', async () => {
+  const root=mkdtempSync(join(tmpdir(),'wechat-daily-content-signature-'));
+  for(const folder of ['contact','message','content'])mkdirSync(join(root,folder));
+  let db=new DatabaseSync(join(root,'contact/contact.db'));db.exec("CREATE TABLE contact(username TEXT,remark TEXT);INSERT INTO contact VALUES('alice','Alice')");db.close();
+  db=new DatabaseSync(join(root,'message/message_0.db'));db.exec("CREATE TABLE Name2Id(user_name TEXT);INSERT INTO Name2Id VALUES('alice')");
+  const table='Msg_'+createHash('md5').update('alice').digest('hex');db.exec('CREATE TABLE '+table+'(local_id INTEGER,create_time INTEGER,message_content TEXT,local_type INTEGER)');db.prepare('INSERT INTO '+table+' VALUES(1,?,?,1)').run(ts('2026-11-18T12:00:00+08:00'),'Synthetic chat');db.close();
+  const edit=text=>{const value=new DatabaseSync(join(root,'content/content.db'));value.prepare('UPDATE records SET content=?').run(text);value.close();};
+  db=new DatabaseSync(join(root,'content/content.db'));db.exec('CREATE TABLE records(record_ref TEXT,kind TEXT,talker TEXT,ts INTEGER,title TEXT,content TEXT,url TEXT,metadata TEXT)');db.prepare('INSERT INTO records VALUES(?,?,?,?,?,?,?,?)').run('c'.repeat(32),'favorites','alice',ts('2026-11-18T12:30:00+08:00'),'','Content A','','{}');db.close();
+  const access=createArchiveAccess({hasArchiveHistory:()=>true,markArchiveHistory:async()=>{}});
+  try{
+    await access.grant('content-signature',{root,allConversations:true,talkers:[],fromTs:null,toTs:null,allowWechat:false,confirmation:'read-decrypted-snapshot'});
+    const query={action:'stats',fromTs:ts('2026-11-18T00:00:00+08:00'),toTs:ts('2026-11-18T23:59:59+08:00'),limit:1};
+    const first=(await access.query('content-signature',query)).rows[0];
+    edit('Content B');await access.refresh('content-signature',root);
+    const second=(await access.query('content-signature',query)).rows[0];
+    assert.equal(second.messageCount,first.messageCount);assert.deepEqual(second.contentCounts,{favorites:1});assert.notEqual(first.contentSignature,second.contentSignature);
+  }finally{await access.dispose();rmSync(root,{recursive:true,force:true});}
+});

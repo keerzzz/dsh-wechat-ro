@@ -110,3 +110,7 @@ python3 -m venv .venv
 Windows 使用 `python -m venv .venv`，随后 `.venv\Scripts\python.exe -m pip install -r requirements.txt`。客户端配置和 `WECHAT_SNAPSHOT_DIR` 见[只读 MCP 指南](getting-started.md#可选只读-mcp)。
 
 开发者安装开发依赖后运行单包串行门禁，步骤见[贡献指南](../CONTRIBUTING.md#环境与独立测试)。离线测试使用合成数据；首次完整安装按第 4 节检查实际微信收发。
+
+## 可选本地内容分析
+
+微信语音转写、图片 OCR、扫描 PDF、视频抽帧及 Office 文本需要独立 Python 环境与 FFmpeg，安装及模型路径见[本地内容分析](content-analysis.md)。历史来源文字搜索沿用基础安装。

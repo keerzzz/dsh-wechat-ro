@@ -528,6 +528,35 @@ process.stdout.write(JSON.stringify(result.rows));
         self.assertTrue(backup.is_dir())
         self.assertEqual(json.loads((backup / "decrypted" / ".wechat-ro-manifest.json").read_text()), manifest)
 
+    def test_reuse_preserves_content_and_rebuilds_changed_wal(self):
+        keys = self.keys_file()
+        first, second, third = (self.private / name for name in ("first", "second", "third"))
+        wcdb_live_snapshot.snapshot_live(str(self.source), str(first), str(keys))
+        result = wcdb_live_snapshot.snapshot_live(str(self.source), str(second), str(keys),
+                                                 previous_snapshot=str(first / "decrypted"))
+        self.assertEqual(result["reused"], 1)
+        self.assertEqual((first / "decrypted/messages.db").read_bytes(),
+                         (second / "decrypted/messages.db").read_bytes())
+        self.assertEqual((second / "decrypted/messages.db").stat().st_nlink, 1)
+        self.wal.write_bytes(rebuild_wal(self.first_wal, encrypt=True))
+        result = wcdb_live_snapshot.snapshot_live(str(self.source), str(third), str(keys),
+                                                 previous_snapshot=str(second / "decrypted"))
+        self.assertEqual(result["reused"], 0)
+        with sqlite3.connect(third / "decrypted/messages.db") as db:
+            self.assertEqual(db.execute("SELECT text FROM messages WHERE id=1").fetchone(), ("first",))
+
+    def test_modified_previous_plaintext_does_not_publish(self):
+        keys = self.keys_file()
+        first, second = self.private / "first", self.private / "second"
+        wcdb_live_snapshot.snapshot_live(str(self.source), str(first), str(keys))
+        path = first / "decrypted/messages.db"
+        with path.open("r+b") as stream:
+            stream.seek(100); stream.write(b"damaged")
+        with self.assertRaisesRegex(ValueError, "清单"):
+            wcdb_live_snapshot.snapshot_live(str(self.source), str(second), str(keys),
+                                             previous_snapshot=str(first / "decrypted"))
+        self.assertFalse(second.exists())
+
     def test_invalid_refresh_preserves_previous_complete_snapshot(self):
         keys = self.keys_file()
         destination = self.private / "snapshot"

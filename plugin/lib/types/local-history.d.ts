@@ -6,6 +6,7 @@ export interface LocalHistoryResult {
     readonly snapshot_id: string;
     readonly changed: boolean;
     readonly database_count: number;
+    readonly content_sources?: readonly ('moments' | 'favorites' | 'miniprogram' | 'voice' | 'image' | 'video')[];
 }
 export declare function runLocalHistory(command: 'import' | 'refresh', signal?: AbortSignal, onProgress?: (phase: 'authenticating' | 'updating') => void, lease?: {
     readonly consumer: string;
@@ -20,13 +21,14 @@ export interface LocalHistoryState {
     readonly accountRef: string | null;
     readonly lastCheckedAt: number | null;
     readonly databaseCount: number;
+    readonly contentSources: readonly ('moments' | 'favorites' | 'miniprogram' | 'voice' | 'image' | 'video')[];
     readonly error: string | null;
 }
 export declare function createLocalHistory(options: {
     data: TaskAccess;
     isIdle: (id: string) => boolean;
     intervalMs?: number;
-    onTick?: (id: string) => void | Promise<void>;
+    onTick?: (id: string, signal: AbortSignal) => void | Promise<void>;
     run?: typeof runLocalHistory;
 }): {
     importHistory(id: string, options: {

@@ -49,6 +49,17 @@ test('background interval checks idle tasks and stops on dispose', async t => {
   idle=true;t.mock.timers.tick(1000);await Promise.resolve();await Promise.resolve();assert.equal(calls,2);
   await f.manager.dispose();t.mock.timers.tick(10000);assert.equal(calls,2);
 });
+test('failed idle content work reschedules history and receives the stop signal', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let calls=0, ticks=0, tickSignal;
+  const f=fixture(async()=>row(++calls),{intervalMs:1000,onTick:async(_id,signal)=>{ticks++;tickSignal=signal;throw new Error('synthetic-content-failure');}});
+  await f.manager.importHistory('task',{autoUpdate:true,allowWechat:false});
+  t.mock.timers.tick(1000);for(let i=0;i<12;i++)await Promise.resolve();
+  assert.equal(ticks,1);assert.equal(calls,2);
+  t.mock.timers.tick(1000);for(let i=0;i<12;i++)await Promise.resolve();
+  assert.equal(ticks,2);assert.equal(calls,3);
+  f.manager.stop('task');assert.equal(tickSignal.aborted,true);await f.manager.dispose();
+});
 test('background copy cannot switch after a native turn starts; the query installs it first', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const hold=deferred(); let calls=0,idle=true;

@@ -54,10 +54,10 @@ class ManagedHistoryTests(unittest.TestCase):
         self.plan=patch.object(module,'preparation_plan',side_effect=lambda *a,**k:(self.source,self.paths,{'account_ref':self.account,'client_build_sha256':module.wcdb_runtime_keys.BUILD_SHA256,'client_build_identity':['synthetic',1]})).start()
         self.snapshot=patch.object(module.wcdb_live_snapshot,'snapshot_live',side_effect=self.capture).start()
 
-    def capture(self,source,destination,keys,selected_paths):
+    def capture(self,source,destination,keys,selected_paths,previous_snapshot=None):
         self.calls+=1;root=Path(destination)/'decrypted';root.mkdir(parents=True,mode=0o700);root.parent.chmod(0o700)
         snapshot_id=f'{self.calls:032x}'
-        module.wcdb_key_tool._write_private_json(str(root/'.wechat-ro-manifest.json'),{'complete':True,'snapshot_id':snapshot_id})
+        module.wcdb_key_tool._write_private_json(str(root/'.wechat-ro-manifest.json'),{'complete':True,'snapshot_id':snapshot_id,'databases':[{'path':p} for p in self.paths],'files':[]})
         return {'snapshot_id':snapshot_id}
 
     def test_import_reuses_keys_then_unchanged_refresh_skips_copy_and_wal_change_rebuilds(self):
@@ -79,6 +79,21 @@ class ManagedHistoryTests(unittest.TestCase):
         self.snapshot.side_effect=RuntimeError('synthetic failure')
         with self.assertRaises(RuntimeError):module.managed_history('refresh',lambda *a,**k:None)
         self.assertEqual(record.read_bytes(),before)
+
+    def test_old_content_index_rebuilds_once_without_database_changes(self):
+        name='sns/sns.db';self.paths.append(name);path=self.source/name;path.parent.mkdir();path.write_bytes(self.page)
+        self.keys[name]={'enc_key':self.key.hex()}
+        module.wcdb_key_tool._write_private_json(str(self.home/'.wechat-ro-history-fixture/runtime-keys.json'),self.keys)
+        def build(root,*args,**kwargs):
+            folder=root/'content';folder.mkdir();(folder/'content.db').write_bytes(b'synthetic-derived-index');return {'counts':{},'skipped':0}
+        with patch.object(module.build_content_index,'build_index',side_effect=build):
+            module.managed_history('import',lambda *a,**k:None)
+            record=self.home/'.wechat-ro-local-history/source.json';value=json.loads(record.read_text());value['content_index_version']=1
+            module.wcdb_key_tool._write_private_json(str(record),value)
+            rebuilt=module.managed_history('refresh',lambda *a,**k:None)
+            self.assertTrue(rebuilt['changed']);self.assertEqual(self.calls,2)
+            self.assertEqual(rebuilt['content_index_version'],module.build_content_index.VERSION)
+            self.assertFalse(module.managed_history('refresh',lambda *a,**k:None)['changed']);self.assertEqual(self.calls,2)
 
     def test_record_cannot_redirect_snapshot_and_lock_serializes_processes(self):
         module.managed_history('import',lambda *a,**k:None)
