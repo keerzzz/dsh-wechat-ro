@@ -14,6 +14,20 @@ In the implemented environment, it connects a personal WeChat bot to a native DS
 - A configurable daily update time, using Beijing time (`UTC+08:00`).
 - An optional read-only Python MCP server for existing decrypted snapshots.
 
+## Installation and DSH versions
+
+The plugin is **0.2.0**. It declares **DSH `>=0.2.1-rc.2`**; the validated local host is based on **0.2.1-rc.2 with host extensions**. Node.js **24.15.0** and plugin pnpm **10.34.1** were used. The original DSH release does not contain the `sealedHistory` and `sealedFirstText` APIs used by native tasks; a distributable host extension setup is still pending. See the [installation guide and compatibility table](installation.md).
+
+On the computer running DSH:
+
+```bash
+git clone https://github.com/keerzzz/dsh-wechat-ro.git
+cd dsh-wechat-ro
+pnpm --dir plugin install --prod --frozen-lockfile --config.auto-install-peers=false
+```
+
+Open **Plugins → Add plugin**, enter the absolute path to this checkout's `plugin/` directory, install, then select **Enable now**. In a compatible host, select a conversation directory and model, connect from the WeChat sidebar, then import history. The installation guide also covers a new DSH host, Windows/macOS/Linux paths, CLI installation and first-use verification.
+
 ## Development setup
 
 ```bash
@@ -27,7 +41,7 @@ pnpm --dir plugin run test:ci
 
 CI uses Node.js 24.15.0, pnpm 10.34.1 and Python 3.12. Seven independent plugin gates run serially with synthetic fixtures.
 
-Native DSH integration requires a compatible host SDK and session extensions. A reproducible public SDK installation is still being prepared. In an existing compatible host, load `plugin/` through Plugin Manager, select a conversation directory and model, connect from the WeChat sidebar, then import history.
+Native DSH integration requires the host capabilities listed in the installation guide. Development tests using SDK peers need a compatible SDK environment; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 Linux WeChat 4.1.13.26 was validated locally for import, automatic updates and phone search replies. Windows and macOS require both capture and native archive-file access implementations, followed by on-platform validation. Existing decrypted snapshots can be evaluated through the separate Python MCP reader; their schemas and host platforms still need validation.
 

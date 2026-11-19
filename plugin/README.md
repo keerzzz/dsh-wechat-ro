@@ -14,7 +14,7 @@ WeChat history search and daily insight cards for DeepSeek Harness, targeting Wi
 - [架构与数据口径](../docs/architecture.md)
 - [原生接口说明](../docs/native-conversation-contract.md)
 
-运行要求见 [package.json](package.json)。Linux 微信 4.1.13.26 已完成本机端到端验收。原生桥接需要兼容的 DSH SDK 及宿主扩展，公开仓库尚未提供完整、可复现的 SDK 安装环境。
+当前插件版本为 **0.2.0**，DSH 声明要求 **`>=0.2.1-rc.2`**；本机验收基于带宿主扩展的 **0.2.1-rc.2**。版本表、系统依赖、本地目录安装及启用见[安装指南](../docs/installation.md)，完整 engines 与 peers 见 [package.json](package.json)。Linux 微信 4.1.13.26 已完成本机端到端验收；原生桥接所需的可分发宿主扩展仍待补齐。
 
 默认 [cordis.patch.yml](cordis.patch.yml) 插入两项关闭快照读取的旧查询服务和一个受控微信任务预设。加载插件后，通过微信侧栏完成连接及历史导入。`sourceRoot` 留空时，原生协调器使用当前宿主用户的 `Documents/xwechat_files` 作为受保护的原库路径；高级手动配置可指定其他原库位置。
 

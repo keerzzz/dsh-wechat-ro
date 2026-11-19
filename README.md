@@ -9,7 +9,7 @@
 
 在已适配环境中，可通过原生微信侧栏扫码连接、一键导入历史。搜索前检查更新，空闲时每分钟检查一次；每天生成卡片的时间可在设置中选择。
 
-[平台支持与适配](docs/platform-support.md) · [使用指南](docs/getting-started.md) · [English guide](docs/guide.en.md) · [架构与数据口径](docs/architecture.md) · [开发工作流](docs/github-workflow.md) · [代码质量](docs/code-quality.md) · [贡献](CONTRIBUTING.md) · [更新记录](CHANGELOG.md)
+[安装与 DSH 版本](docs/installation.md) · [平台支持与适配](docs/platform-support.md) · [使用指南](docs/getting-started.md) · [English guide](docs/guide.en.md) · [架构与数据口径](docs/architecture.md) · [开发工作流](docs/github-workflow.md) · [代码质量](docs/code-quality.md) · [贡献](CONTRIBUTING.md) · [更新记录](CHANGELOG.md)
 
 ## 功能
 
@@ -35,22 +35,21 @@
 
 ## 快速开始
 
-先克隆并运行独立测试：
+插件当前版本 **0.2.0**，DSH 声明要求 **`>=0.2.1-rc.2`**，本机验收基于带宿主扩展的 **DSH 0.2.1-rc.2**。Node.js 已验证版本为 **24.15.0**，插件 pnpm 为 **10.34.1**。完整原生任务所需的宿主扩展尚待分发，兼容条件见[安装与版本表](docs/installation.md#版本与兼容环境)。
+
+在运行 DSH 的电脑上下载并安装插件运行依赖：
 
 ```bash
 git clone https://github.com/keerzzz/dsh-wechat-ro.git
 cd dsh-wechat-ro
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt
-pnpm --dir plugin install --frozen-lockfile --config.auto-install-peers=false
-pnpm --dir plugin run test:ci
+pnpm --dir plugin install --prod --frozen-lockfile --config.auto-install-peers=false
 ```
 
-CI 使用 Node.js 24.15.0、pnpm 10.34.1、Python 3.12，七项插件门禁逐项串行运行。DSH 集成还需提供兼容的宿主 SDK；原生会话桥接使用了宿主扩展，当前尚未整理成可复现的公开 SDK 安装环境。
+在 DSH **插件 → 添加插件** 中填写本仓库 `plugin/` 的绝对路径，安装后点击 **立即启用**。进入原生会话，选择目录和模型，打开微信侧栏并扫码；随后一键导入历史，再设置每日卡片更新时间。
 
-已有兼容 DSH 环境时，通过 Plugin Manager 加载本仓库的 `plugin/`。进入原生会话，选择目录和模型，打开微信侧栏并扫码；随后一键导入历史，再设置每日卡片更新时间。完整步骤见[使用指南](docs/getting-started.md)。
+新建 DSH 环境、三系统路径、CLI 安装及首次验收见[安装指南](docs/installation.md)。开发依赖和单包串行测试见[贡献指南](CONTRIBUTING.md#环境与独立测试)。
 
-只使用 MCP 时，将 `WECHAT_SNAPSHOT_DIR` 指向独立解密副本，再运行：
+只使用 MCP 时，先按[安装指南](docs/installation.md#只需要-mcp-或开发测试)准备 Python 环境，将 `WECHAT_SNAPSHOT_DIR` 指向独立解密副本，再运行：
 
 ```bash
 WECHAT_SNAPSHOT_DIR=/absolute/private/snapshot/decrypted \

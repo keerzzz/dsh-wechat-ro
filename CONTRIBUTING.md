@@ -6,7 +6,7 @@
 
 ## 环境与独立测试
 
-当前公开 CI 使用 Linux、Node.js 24.15.0、pnpm 10.34.1、Python 3.12。插件运行要求见 [plugin/package.json](plugin/package.json)，其他版本的支持情况以实际验证为准。
+当前公开 CI 使用 Linux、Node.js 24.15.0、pnpm 10.34.1、Python 3.12。安装及 DSH／SDK 版本见[安装指南](docs/installation.md#版本与兼容环境)，插件运行要求见 [plugin/package.json](plugin/package.json)。DSH 源码构建使用它自己的 `packageManager`，与插件独立依赖的 pnpm 版本分别记录。
 
 在仓库根目录执行：
 
