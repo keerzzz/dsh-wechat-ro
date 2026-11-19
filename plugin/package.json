@@ -148,7 +148,9 @@
     "cordis.snapshot.example.yml",
     "README.md",
     "lib/local-history.js",
-    "lib/daily-cards.js"
+    "lib/daily-cards.js",
+    "lib/content-analysis.js",
+    "lib/image-decode.js"
   ],
   "engines": {
     "dsh": ">=0.2.2-rc.5 <0.3.0",

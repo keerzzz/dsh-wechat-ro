@@ -1336,7 +1336,7 @@ test('native model all-action fields support read create and present without wea
     const events = agent.session.snapshotEvents(), results = events.filter(event => event.type === 'tool/result');
     assert.equal(results.length, 9);
     const actions = events.filter(event => event.type === 'tool/call' && event.data.name === 'wechat_task_files').map(event => JSON.parse(event.data.arguments).action);
-    assert.deepEqual([...new Set(actions)].sort(), [...schema.properties.action.enum].sort());
+    assert.deepEqual([...new Set(actions)].sort(), schema.properties.action.enum.filter(action => action !== 'analyze').sort());
     for (const result of results) assert.equal(result.data.message.isError, false, JSON.stringify(result.data.message.content));
     assert.ok(JSON.stringify(results[0]).includes('SYNTHETIC_ACTION_INPUT'));
     assert.ok(f.ctx.fs.reads.length > reads);
@@ -1355,7 +1355,7 @@ test('native action normalization rejects unknown or invalid relevant fields as 
   const f = await fixture();
   try {
     const { id, agent } = await nativeTask(f);
-    const filled = { action: 'status', sourceId: 'workspace', query: 'unused source search', limit: 20, offset: 0 };
+    const filled = { action: 'status', sourceId: 'workspace', query: 'unused source search', limit: 20, offset: 0, talker: '', localId: '', ts: 0 };
     const schema = f.ctx.tools.get('wechat_task_sources', scopeOf(agent.ctx)).parameters;
     assert.deepEqual(Object.keys(filled).sort(), Object.keys(schema.properties).sort());
     await rejects(() => f.access.query(id, filled), 'invalid-request');
@@ -1716,4 +1716,95 @@ test('foreign prompt-tool schemas stop only the affected Task before model dispa
     assert.equal(f.adapter.requests.length, 1);
     assert.equal(f.adapter.requests[0].model, 'ordinary-model');
   } finally { release?.(); await ordinary?.dispose(); await f.dispose(); }
+});
+
+test('selected images use native DSH attachments only after the Owner vision setting', async () => {
+  const { default: LocalAttachments } = await import('@deepseek-ai/dsh-attachment-local');
+  const { homedir } = await import('node:os');
+  const png = Buffer.concat([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAFElEQVR4nGP8//8/AwwwMSAB3BwAlm4DBfIlvvkAAAAASUVORK5CYII=', 'base64'), Buffer.from(randomUUID())]);
+  const sha = createHash('sha256').update(png).digest('hex');
+  const key = createHash('sha256').update('4/' + sha + '/.png').digest('hex');
+  const cache = join(homedir(), '.local/share/dsh-wechat-ro/content-cache', key + '.json');
+  await mkdir(dirname(cache), { recursive: true, mode: 0o700 });
+  await writeFile(cache, JSON.stringify({ text: 'SYNTHETIC_OCR_FIXTURE', sha256: sha, engine: 'synthetic-cache-fixture' }), { flag: 'wx', mode: 0o600 });
+  const previous = process.env.WECHAT_CONTENT_PYTHON; process.env.WECHAT_CONTENT_PYTHON = '/usr/bin/python3';
+  const f = await fixture([
+    () => call('wechat_task_files', { action: 'analyze', path: 'selected.png' }, 'ocr-only'), 'Local extraction ready.',
+    () => call('wechat_task_files', { action: 'analyze', path: 'selected.png' }, 'native-image'), 'Selected image received.',
+  ]);
+  try {
+    await f.ctx.plugin(LocalAttachments, { dshHome: join(f.root, 'attachments') });
+    await f.ctx.plugin(AgentDefaultModelConfig, { provider: 'synthetic', model: 'selected-image-model' });
+    const { id, agent } = await nativeTask(f);
+    await writeFile(join(f.workspace, 'selected.png'), png);
+    assert.equal(f.access.getState(id).modelVision, false);
+    const local = await f.access.file(id, { action: 'analyze', path: 'selected.png' });
+    assert.equal(local.text, 'SYNTHETIC_OCR_FIXTURE');
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Analyze the selected synthetic image.' }] }));
+    await agent.whenIdle(); await f.ctx.sessions.flush(agent.session);
+    const images = request => request.messages.filter(m => m.role === 'tool').flatMap(m => m.content.filter(b => b.type === 'image'));
+    assert.equal(images(f.adapter.requests[1]).length, 0);
+    await f.access.setModelVision(id, true);
+    assert.equal(f.access.getState(id).modelVision, true);
+    const visual = await f.access.file(id, { action: 'analyze', path: 'selected.png' });
+    assert.equal(visual.images.length, 1);
+    agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Analyze selected.png with vision.' }] }));
+    await agent.whenIdle(); await f.ctx.sessions.flush(agent.session);
+    const received = images(f.adapter.requests[3]);
+    assert.equal(received.length, 1, JSON.stringify(f.adapter.requests[3].messages.filter(m => m.role === 'tool')));
+    assert.equal(received[0].attachment.mediaType, 'image/png');
+    const stored = await f.ctx.attachments.readImage(received[0].attachment);
+    assert.ok(stored.data.byteLength > 0);
+    assert.equal(f.ctx.storageDomain.get(TASK_CONTEXT_SPEC.name).table('tasks').get(id).modelVision, true);
+    f.access.revoke(id, 'workspace');
+    await rejects(() => f.access.file(id, { action: 'analyze', path: 'selected.png' }), 'not-granted');
+  } finally {
+    if (previous === undefined) delete process.env.WECHAT_CONTENT_PYTHON; else process.env.WECHAT_CONTENT_PYTHON = previous;
+    await rm(cache, { force: true }); await f.dispose();
+  }
+});
+
+test('idle indexing resumes tied timestamps, enforces archive scope and never calls the model', async () => {
+  const { homedir } = await import('node:os');
+  const f = await fixture();
+  const account = randomUUID().replaceAll('-', '').slice(0,12);
+  const historyCache = join(homedir(), '.local/share/dsh-wechat-ro/content-history', account);
+  const caches = [], previous = process.env.WECHAT_CONTENT_PYTHON;
+  process.env.WECHAT_CONTENT_PYTHON = '/usr/bin/python3';
+  try {
+    const root=join(f.root,'index-archive');
+    for(const folder of ['contact','message'])await mkdir(join(root,folder),{recursive:true});
+    await writeFile(join(root,'.wechat-ro-manifest.json'),JSON.stringify({account_ref:account,snapshot_id:'a'.repeat(32)}));
+    let db=new DatabaseSync(join(root,'contact/contact.db'));
+    db.exec("CREATE TABLE contact(username TEXT,remark TEXT); INSERT INTO contact VALUES('alpha','A'),('beta','B')");db.close();
+    db=new DatabaseSync(join(root,'message/message.db'));
+    db.exec('CREATE TABLE "Msg_'+createHash('md5').update('alpha').digest('hex')+'"(local_id INTEGER,create_time INTEGER,message_content TEXT,local_type INTEGER)');db.close();
+    db=new DatabaseSync(join(root,'message/message_resource.db'));
+    db.exec('CREATE TABLE ChatName2Id(user_name TEXT); CREATE TABLE MessageResourceInfo(message_id INTEGER,chat_id INTEGER,message_local_id INTEGER,message_create_time INTEGER,message_local_type INTEGER,packed_info BLOB)');db.close();
+    db=new DatabaseSync(join(root,'message/media_0.db'));
+    db.exec("CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id VALUES('alpha'),('beta'); CREATE TABLE VoiceInfo(chat_name_id INTEGER,local_id INTEGER,create_time INTEGER,voice_data BLOB)");
+    for(const id of [1,2,3]){
+      const bytes=Buffer.from('synthetic-voice-'+randomUUID()),sha=createHash('sha256').update(bytes).digest('hex');
+      db.prepare('INSERT INTO VoiceInfo VALUES(?,?,1700000000,?)').run(id===3?2:1,id,bytes);
+      const cache=join(homedir(),'.local/share/dsh-wechat-ro/content-cache',createHash('sha256').update('4/'+sha+'/.silk').digest('hex')+'.json');
+      await mkdir(dirname(cache),{recursive:true});await writeFile(cache,JSON.stringify({text:'SYNTHETIC_TRANSCRIPT_'+id,sha256:sha,version:4,engine:'synthetic-transcript'}),{flag:'wx',mode:0o600});caches.push(cache);
+    }
+    db.close();
+    const {id}=await nativeTask(f);
+    await f.access.grantSnapshot(id,{root,allConversations:false,talkers:['alpha'],fromTs:1700000000,toTs:1700000001,allowWechat:false,confirmation:'read-decrypted-snapshot'});
+    await f.access.setModelVision(id,true);
+    assert.equal((await f.access.indexContent(id)).processed,1);
+    assert.equal((await f.access.indexContent(id)).processed,2);
+    const state=f.ctx.storageDomain.get(TASK_CONTEXT_SPEC.name).table('tasks').get(id).contentProgress;
+    assert.equal(state.cursors[0].toTs,1700000000);assert.equal(state.cursors[0].offset,2);
+    const files=await (await import('node:fs/promises')).readdir(historyCache);
+    assert.equal(files.length,2);
+    const texts=await Promise.all(files.map(name=>readFile(join(historyCache,name),'utf8').then(JSON.parse)));
+    assert.ok(texts.every(row=>row.talker==='alpha'));assert.deepEqual(texts.map(row=>row.text).sort(),['SYNTHETIC_TRANSCRIPT_1','SYNTHETIC_TRANSCRIPT_2']);
+    assert.equal(f.adapter.requests.length,0);
+    f.access.revoke(id,'archive');await rejects(()=>f.access.indexContent(id),'not-granted');
+  } finally {
+    if(previous===undefined)delete process.env.WECHAT_CONTENT_PYTHON;else process.env.WECHAT_CONTENT_PYTHON=previous;
+    for(const path of caches)await rm(path,{force:true});await rm(historyCache,{recursive:true,force:true});await f.dispose();
+  }
 });

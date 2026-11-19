@@ -95,7 +95,7 @@ PR 检查通过、讨论处理完后 Squash 合并。Squash 标题沿用提交�
 
 ## 5. 自动与人工验证
 
-`.github/workflows/ci.yml` 在 `main` 推送、面向 `main` 的 PR 和手动运行时执行。一个 Linux Job 先检查全仓代码质量，再按顺序运行 plugin 包的七项离线门禁，不配置测试矩阵。它安装锁定 Node/pnpm 和锁文件依赖，使用合成输入及只读 GitHub 权限；第三方 Actions 固定到已核对的提交 SHA。
+`.github/workflows/ci.yml` 在 `main` 推送、面向 `main` 的 PR 和手动运行时执行。一个 Linux Job 先检查全仓代码质量，再按顺序运行 plugin 包的离线门禁（含新增内容索引与媒体容器回归），不配置测试矩阵。它安装锁定 Node/pnpm 和锁文件依赖，使用合成输入及只读 GitHub 权限；第三方 Actions 固定到已核对的提交 SHA。
 
 | 自动门禁 | 主要覆盖 |
 |---|---|

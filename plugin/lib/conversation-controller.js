@@ -130,12 +130,36 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
       ...(dependencies.runLocalHistory ? { run: dependencies.runLocalHistory } : {}),
       isIdle: id => !busy.has(id) && !channels.get(id)?.nativeActive && dailyCards?.state(id).phase !== 'summarizing'
         && !(ctx.get ? ctx.get('agents') : ctx.agents)?.get?.(id)?.status?.includes('running'),
-      onTick: id => dailyCards?.update(id) });
+      onTick: async (id, signal) => {
+        await dailyCards?.update(id);
+        if (!signal.aborted && !busy.has(id) && !channels.get(id)?.nativeActive
+          && !(ctx.get ? ctx.get('agents') : ctx.agents)?.get?.(id)?.status?.includes('running')) await taskData.indexContent?.(id, signal);
+      } });
     dailyCards = createDailyCards({ storage: dependencies.storageDomain || (ctx.get ? ctx.get('storageDomain') : ctx.storageDomain),
       query: (...args) => taskData.query(...args), source: id => localHistory.state(id),
       isIdle: id => !busy.has(id) && !channels.get(id)?.nativeActive && taskBridge.isPrepared(id)
         && taskData.canShare(id) && nativeModelConfigured(id) && service('agents')?.get?.(id)?.status === 'idle',
-      summarize: (...args) => taskBridge.reply(...args) });
+      summarize: async (id, prompt, _metadata, signal) => {
+        const agent = service('agents')?.get(id);
+        const selected = service('sessionProjections')?.stateOf?.(agent.session, 'modelSelection')?.pending || agent.options;
+        const control = AbortSignal.any([signal, taskData.contextSignal(id), AbortSignal.timeout(120000)]);
+        let text = '', complete = false;
+        // A report has its own input and no tools. It cannot be coalesced with
+        // a native/phone turn, and it does not append report prompts to that chat.
+        for await (const chunk of service('llm').stream({ provider: selected.provider, model: selected.model,
+          ...(selected.reasoningEffort ? { reasoningEffort: selected.reasoningEffort } : {}),
+          messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }], tools: [], maxTokens: 6000, signal: control })) {
+          control.throwIfAborted();
+          if (chunk.type === 'text-delta') text += chunk.text;
+          if (Buffer.byteLength(text) > 65536) throw Object.assign(new Error('SUMMARY_BYTE_BUDGET'), { code: 'SUMMARY_BYTE_BUDGET' });
+          if (chunk.type === 'finish') {
+            complete = chunk.reason.kind === 'stop';
+            if (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted') throw Object.assign(new Error('SUMMARY_MODEL_FAILED'), { code: chunk.reason.failure?.code || 'SUMMARY_MODEL_FAILED' });
+          }
+        }
+        if (!complete || !taskData.canShare(id)) throw Object.assign(new Error('SUMMARY_NOT_COMPLETED'), { code: 'SUMMARY_NOT_COMPLETED' });
+        return text;
+      } });
   } catch (error) { taskInitializationError = errorCode(error); }
   const service = name => ctx.get ? ctx.get(name) : ctx[name];
   const taskAvailable = () => {
@@ -751,6 +775,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
           if (service('agents')?.get?.(id)?.status === 'running') fail('BUSY');
           await localHistory.refresh(id, signal); result = localHistory.state(id); break;
         case 'stopLocalHistory': dailyCards?.stop(id); result = localHistory.stop(id); break;
+        case 'setModelVision': result = await taskData.setModelVision(id, request.enabled); break;
         case 'setDailyCardTime': result = await dailyCards.settings(id, request.time); break;
         case 'refreshDailyCards': {
           // Release the UI action lock while the coordinated card job runs.

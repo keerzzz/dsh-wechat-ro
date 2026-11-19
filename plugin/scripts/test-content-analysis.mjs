@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import { createCipheriv } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { decodeDat, deriveDatKey } from '../lib/image-decode.js';
+const python = spawnSync(process.env.WECHAT_TEST_PYTHON || 'python3', [fileURLToPath(new URL('../../scripts/test_content_analysis.py', import.meta.url))], { encoding: 'utf8' });
+assert.equal(python.status, 0, python.stdout + python.stderr);
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAFElEQVR4nGP8//8/AwwwMSAB3BwAlm4DBfIlvvkAAAAASUVORK5CYII=', 'base64');
+const key = Buffer.from('0123456789abcdef');
+assert.equal(deriveDatKey(12345, 'synthetic-account').key.toString(), '860428b142ed48ad');
+assert.equal(deriveDatKey(12345, 'synthetic-account').xor, 57);
+assert.throws(() => deriveDatKey(0, 'synthetic-account'), /DAT_KEY_INPUT/);
+const pack = (version, aesKey, xorBytes = 12) => {
+  const header = Buffer.alloc(15); Buffer.from('0708563' + version + '0807', 'hex').copy(header); header.writeUInt32LE(16, 6); header.writeUInt32LE(xorBytes, 10);
+  const cipher = createCipheriv('aes-128-ecb', aesKey, null);
+  return Buffer.concat([header, cipher.update(png.subarray(0,16)), cipher.final(), png.subarray(16,png.length-xorBytes), Buffer.from(png.subarray(png.length-xorBytes).map(b => b ^ 0xa7))]);
+};
+assert.deepEqual(decodeDat(Buffer.from(png.map(b => b ^ 0x81))).data, png);
+const v1 = pack('1', Buffer.from('cfcd208495d565ef'));
+assert.deepEqual(decodeDat(v1).data, png);
+const v2 = pack('2', key);
+assert.deepEqual(decodeDat(v2,key).data,png);
+assert.throws(() => decodeDat(v2), /LOCAL_MEDIA_KEY_REQUIRED/);
+assert.throws(() => decodeDat(v2, Buffer.alloc(16)));
+assert.throws(() => decodeDat(v1.subarray(0,30)), /DAT_LENGTHS/);
+const corrupted = Buffer.from(v1); corrupted[corrupted.length-2] ^= 1;
+assert.throws(() => decodeDat(corrupted), /DAT_TAIL/);
+assert.deepEqual(decodeDat(png).data, png);
+const isolatedHome = mkdtempSync(join(tmpdir(), 'wechat-dat-key-test-'));
+try {
+  const moduleUrl = new URL('../lib/content-analysis.js', import.meta.url).href;
+  const script = `import assert from 'node:assert/strict';
+    import {mkdir,writeFile,readFile,rm,stat} from 'node:fs/promises';
+    import {homedir} from 'node:os';import {join} from 'node:path';import {createCipheriv} from 'node:crypto';
+    import {decodeLocalDat} from ${JSON.stringify(moduleUrl)};
+    import {deriveDatKey} from ${JSON.stringify(new URL('../lib/image-decode.js', import.meta.url).href)};
+    const root=homedir(),registry=join(root,'.wechat-ro-local-history'),cache=join(root,'.xwechat/net/kvcomm');
+    await mkdir(registry,{recursive:true});await mkdir(cache,{recursive:true});
+    await writeFile(join(registry,'source.json'),JSON.stringify({source:join(root,'wechat/synthetic-account_abcd/db_storage'),account_ref:'a'.repeat(12)}));
+    const png=Buffer.from(${JSON.stringify(png.toString('base64'))},'base64');
+    function pack(code){const {key,xor}=deriveDatKey(code,'synthetic-account');const header=Buffer.alloc(15);Buffer.from('070856320807','hex').copy(header);header.writeUInt32LE(16,6);header.writeUInt32LE(12,10);const cipher=createCipheriv('aes-128-ecb',key,null);return Buffer.concat([header,cipher.update(png.subarray(0,16)),cipher.final(),png.subarray(16,png.length-12),Buffer.from(png.subarray(-12).map(b=>b^xor))]);}
+    await writeFile(join(cache,'key_12345_test.statistic'),'');
+    assert.deepEqual((await decodeLocalDat(pack(12345))).data,png);
+    const keyFile=join(root,'.local/share/dsh-wechat-ro/media-keys.json');assert.equal((await stat(keyFile)).mode&0o777,0o600);
+    assert.equal(JSON.parse(await readFile(keyFile)).account_ref,'a'.repeat(12));
+    await rm(cache,{recursive:true});assert.deepEqual((await decodeLocalDat(pack(12345))).data,png);
+    await mkdir(cache,{recursive:true});await writeFile(join(cache,'key_67890_rotated.statistic'),'');
+    assert.deepEqual((await decodeLocalDat(pack(67890))).data,png);
+    await rm(keyFile);await rm(cache,{recursive:true});await assert.rejects(decodeLocalDat(pack(67890)),/LOCAL_MEDIA_KEY_REQUIRED/);
+    console.log('PASS cache derivation, account binding, restart reuse and rotation');`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, HOME: isolatedHome }, encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stdout + child.stderr);
+} finally { rmSync(isolatedHome, { recursive: true, force: true }); }
+console.log('PASS local content: Office string coordinates, cache identity, DAT XOR/V1/V2 and malformed containers');

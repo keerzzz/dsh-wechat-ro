@@ -2,5 +2,32 @@
   "meta": {
     "title": "微信快照与会话服务",
     "description": "为原生会话侧栏提供严格校验的只读快照与连接操作。默认不读取、不联网；独立解密副本须按 Session 明确授权，微信连接与收发须单独确认。"
-  }
+  },
+  "historySources": "历史来源",
+  "historyMoments": "朋友圈",
+  "historyMiniprogram": "小程序",
+  "historyFavorites": "收藏",
+  "historyContacts": "通讯录",
+  "historyCount": "{count} 条记录",
+  "historyCountPending": "待读取",
+  "historySearch": "搜索当前来源",
+  "historySearchButton": "搜索并更新",
+  "historyLoading": "正在读取当前来源…",
+  "historySourceFailed": "来源读取未完成，请重试或重新导入微信历史。",
+  "historyEmptyHint": "可更换关键词；新增来源需要重新导入一次微信历史。",
+  "historyUntitled": "内容记录",
+  "historyMediaCount": "{count} 个媒体项目",
+  "historyMomentsScope": "展示本机已缓存的朋友圈动态。",
+  "historyMiniScope": "展示聊天和收藏中的小程序卡片、标题、链接与可提取文字。",
+  "historyFavoritesScope": "展示收藏正文与来源。日期为收藏库记录的更新时间。",
+  "historyContactsScope": "展示当前联系人备注、昵称和微信标识。",
+  "historySourceEmpty": "没有匹配的记录",
+  "historyVoice": "语音",
+  "historyVoiceScope": "选择语音后在本机转写；结果会随下一次历史更新进入搜索。",
+  "historyReadVoices": "读取语音记录",
+  "historyTranscribe": "本地转写",
+  "historyModelVision": "将选中的图片和视频画面交给当前模型理解",
+  "historyTranscriptCitation": "查看语音记录与转写引用",
+  "historyBatchHint": "开启历史自动更新后，空闲时分批在本机转写、OCR 和索引。",
+  "historyBatchProgress": "本地批量索引：已处理 {processed} 条，跳过 {skipped} 条不可用记录。"
 }

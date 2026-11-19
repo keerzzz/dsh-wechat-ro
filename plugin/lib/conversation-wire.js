@@ -36,7 +36,8 @@ export function createConversationWire(z) {
   const ERROR_CODE = z.enum(CONVERSATION_ERROR_CODES);
   const getStateRequestSchema = z.strictObject({ sessionId: SESSION_ID.optional() });
   const archiveQuerySchema = z.strictObject({
-    action: z.enum(['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest']),
+    action: z.enum(['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest', 'content', 'contentStats', 'media']),
+    sourceKind: z.enum(['messages', 'moments', 'favorites', 'miniprogram', 'voice', 'image', 'video']).optional(),
     talker: TALKER.optional(), query: z.string().min(1).max(1000).optional(),
     limit: z.number().int().min(1).max(500).optional(),
     offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
@@ -95,7 +96,7 @@ export function createConversationWire(z) {
   const sourceInfo = { sourceId: SOURCE_ID, title: printable(160), allowWechat: z.boolean() };
   const taskAccessStateSchema = z.strictObject({ version: z.literal(1), sessionId: TASK_ID, disposed: z.boolean(), prepared: z.boolean(), historyKnown: z.boolean(),
     workspace: workspaceInfo.nullable(), allowWechat: z.boolean(), shareable: z.boolean(), sessionMayContainData: z.boolean(), contextBlocked: z.boolean(),
-    sources: z.array(z.discriminatedUnion('kind', [z.strictObject({ ...sourceInfo, kind: z.literal('directory'), root: printable(4096), write: z.boolean() }),
+    modelVision: z.boolean().optional(), contentProcessing: z.strictObject({ processed: z.number().int().nonnegative(), skipped: z.number().int().nonnegative() }).nullable().optional(), sources: z.array(z.discriminatedUnion('kind', [z.strictObject({ ...sourceInfo, kind: z.literal('directory'), root: printable(4096), write: z.boolean() }),
       z.strictObject({ ...sourceInfo, kind: z.literal('session'), sessionId: SESSION_ID }), z.strictObject({ ...sourceInfo, kind: z.literal('archive'), archive: JSON_OBJECT })])).max(32),
     lastError: printable(80).nullable() });
   const connectionSetupSchema = z.strictObject({ root: printable(4096).nullable(), title: printable(160).nullable(), sessionId: TASK_ID.nullable(),
@@ -109,10 +110,13 @@ export function createConversationWire(z) {
   const workspaceGrant = z.strictObject({ root: printable(4096), title: printable(160), allowWechat: z.boolean(), confirmation: z.literal('read-and-write-task-workspace') });
   const sourceQuery = z.discriminatedUnion('action', [z.strictObject({ action: z.literal('status') }),
     z.strictObject({ action: z.literal('archive'), query: archiveQuerySchema }),
+    z.strictObject({ action: z.literal('analyzeVoice'), talker: TALKER, localId: z.string().regex(/^[0-9]{1,20}$/), ts: TIMESTAMP }),
+    z.strictObject({ action: z.literal('analyzeMedia'), talker: TALKER, localId: z.string().regex(/^[0-9]{1,20}$/), ts: TIMESTAMP }),
     z.strictObject({ action: z.literal('session'), sourceId: SOURCE_ID, query: printable(512).optional(), limit: z.number().int().min(1).max(50).optional(), offset: z.number().int().min(0).max(10000).optional() })]);
   const fileQuery = z.discriminatedUnion('action', [
     z.strictObject({ action: z.literal('list'), sourceId: SOURCE_ID.optional(), path: printable(2048).optional(), limit: z.number().int().min(1).max(100).optional() }),
-    z.strictObject({ action: z.literal('read'), sourceId: SOURCE_ID.optional(), path: printable(2048) })]);
+    z.strictObject({ action: z.literal('read'), sourceId: SOURCE_ID.optional(), path: printable(2048) }),
+    z.strictObject({ action: z.literal('analyze'), sourceId: SOURCE_ID.optional(), path: printable(2048) })]);
   const target = { kind: z.literal('task'), sessionId: TASK_ID };
   const taskAction = (name, shape) => z.strictObject({ action: z.literal(name), ...target, ...shape });
   const firstModelControls = { provider: printable(256), model: printable(256), reasoningEffort: printable(80).optional(),
@@ -122,6 +126,7 @@ export function createConversationWire(z) {
     z.strictObject({ ...firstModelControls, confirmation: z.literal('select-first-task-model'), selectionRevision: TIMESTAMP, preparationConfirmation: z.literal('prepare-first-task-model-metadata') }),
   ]);
   const taskBaseActionSchema = z.discriminatedUnion('action', [
+    taskAction('setModelVision', { enabled: z.boolean(), confirmation: z.literal('analyze-selected-media-with-current-model') }),
     taskAction('setDailyCardTime', { time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/) }),
     taskAction('refreshDailyCards', {}),
     taskAction('importLocalHistory', { autoUpdate: z.boolean(), allowWechat: z.boolean(), confirmation: z.literal('import-own-wechat-history') }),

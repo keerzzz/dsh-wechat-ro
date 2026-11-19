@@ -15,7 +15,7 @@ export declare const TASK_ACCESS_LIMITS: Readonly<{
     maxReferences: 128;
     timeoutMs: 15000;
 }>;
-export type TaskAccessErrorCode = 'invalid-options' | 'invalid-request' | 'not-prepared' | 'not-granted' | 'forbidden-root' | 'path-rejected' | 'unsupported-filesystem' | 'not-directory' | 'not-file' | 'file-changed' | 'byte-budget-exceeded' | 'event-budget-exceeded' | 'history-unavailable' | 'share-forbidden' | 'source-failed' | 'query-budget-exceeded' | 'write-failed' | 'revoked' | 'aborted' | 'disposed' | 'busy' | 'not-produced';
+export type TaskAccessErrorCode = 'invalid-options' | 'invalid-request' | 'not-prepared' | 'not-granted' | 'forbidden-root' | 'path-rejected' | 'unsupported-filesystem' | 'not-directory' | 'not-file' | 'file-changed' | 'byte-budget-exceeded' | 'event-budget-exceeded' | 'history-unavailable' | 'share-forbidden' | 'analysis-unavailable' | 'analysis-failed' | 'source-failed' | 'query-budget-exceeded' | 'write-failed' | 'revoked' | 'aborted' | 'disposed' | 'busy' | 'not-produced';
 export declare class TaskAccessError extends Error {
     readonly name: 'TaskAccessError';
     readonly code: TaskAccessErrorCode;
@@ -36,6 +36,7 @@ export interface TaskContextRecord {
     readonly workspace: TaskWorkspace | null;
     readonly mayContainData: boolean;
     readonly consumed: readonly TaskConsumedSource[];
+    readonly modelVision?: boolean;
 }
 export declare const TASK_CONTEXT_SPEC: Readonly<{
     name: 'wechat_task_contexts_v1';
@@ -92,6 +93,11 @@ export interface TaskAccessState {
     readonly shareable: boolean;
     readonly sessionMayContainData: boolean;
     readonly contextBlocked: boolean;
+    readonly modelVision?: boolean;
+    readonly contentProcessing?: {
+        readonly processed: number;
+        readonly skipped: number;
+    } | null;
     readonly sources: readonly TaskSource[];
     readonly lastError: TaskAccessErrorCode | null;
 }
@@ -100,6 +106,16 @@ export type TaskSourceQuery = {
 } | {
     readonly action: 'archive';
     readonly query: ArchiveQuery;
+} | {
+    readonly action: 'analyzeVoice';
+    readonly talker: string;
+    readonly localId: string;
+    readonly ts: number;
+} | {
+    readonly action: 'analyzeMedia';
+    readonly talker: string;
+    readonly localId: string;
+    readonly ts: number;
 } | {
     readonly action: 'session';
     readonly sourceId: string;
@@ -114,6 +130,10 @@ export type TaskFileRequest = {
     readonly limit?: number;
 } | {
     readonly action: 'read';
+    readonly sourceId?: string;
+    readonly path: string;
+} | {
+    readonly action: 'analyze';
     readonly sourceId?: string;
     readonly path: string;
 } | {
@@ -416,6 +436,7 @@ export declare const TASK_FIRST_TEXT_AUDIT_SPEC: Readonly<{
     };
 }>;
 export interface TaskAccess {
+    setModelVision(id: string, enabled: boolean): Promise<TaskAccessState>;
     bindFirstTextSupport(id: string, probe: () => TaskFirstTextSupport): () => void;
     invalidateTextModel(id: string): void;
     stopTextContexts(id: string, request?: {
@@ -510,6 +531,10 @@ export interface TaskAccess {
     canShare(id: string): boolean;
     prepare(id: string, session: Session, signal?: AbortSignal): Promise<void>;
     query(id: string, request: TaskSourceQuery, signal?: AbortSignal, destination?: 'local' | 'wechat', turn?: number | null): Promise<Readonly<Record<string, unknown>>>;
+    indexContent(id: string, signal?: AbortSignal): Promise<{
+        processed: number;
+        skipped: number;
+    } | undefined>;
     file(id: string, request: TaskFileRequest, signal?: AbortSignal, destination?: 'local' | 'wechat', turn?: number | null): Promise<Readonly<Record<string, unknown>>>;
     inspectDeliverables(id: string, files: readonly {
         path: string;

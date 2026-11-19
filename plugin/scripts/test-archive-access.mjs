@@ -106,7 +106,7 @@ try {
     assert.equal(forks.length, before);
     assert.throws(() => createArchiveAccess({ maxRows: 201 }), error => error.code === 'invalid-options');
     assert.throws(() => createArchiveAccess({ maxBytes: 131073 }), error => error.code === 'invalid-options');
-    assert.throws(() => createArchiveAccess({ queryTimeoutMs: 5001 }), error => error.code === 'invalid-options');
+    assert.throws(() => createArchiveAccess({ queryTimeoutMs: 15001 }), error => error.code === 'invalid-options');
     assert.throws(() => createArchiveAccess({ hasArchiveHistory: () => false }), error => error.code === 'invalid-options');
   });
   const root = fixture('scope');

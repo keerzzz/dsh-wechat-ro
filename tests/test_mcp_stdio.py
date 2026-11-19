@@ -1,4 +1,4 @@
-"""End-to-end test: drive all 8 tools over a real MCP stdio handshake.
+"""End-to-end test: drive all 9 tools over a real MCP stdio handshake.
 
 Spawns 'python -m wechat_ro_mcp' as a child process, initializes a
 ClientSession, verifies tool discovery/annotations, then calls every tool and
@@ -22,7 +22,7 @@ SNAP = os.environ["WECHAT_SNAPSHOT_DIR"]
 EXPECTED_TOOLS = {
     "wechat_status", "wechat_contacts", "wechat_sessions", "wechat_messages",
     "wechat_search_messages", "wechat_timeline", "wechat_chatroom_members",
-    "wechat_sql",
+    "wechat_sql", "wechat_content",
 }
 
 # tool name -> (arguments, key to check inside structuredContent, expected value)
@@ -32,6 +32,7 @@ CALLS = [
     ("wechat_sessions", {}, "total", 4),
     ("wechat_messages", {"session": "wxid_alice"}, "total", 6),
     ("wechat_search_messages", {"query": "预算表"}, "total", 3),
+    ("wechat_content", {"source": "image"}, "available", False),
     ("wechat_timeline", {"days": 30}, "days", 30),
     ("wechat_chatroom_members", {"room": "12345678@chatroom"}, "total", 3),
     ("wechat_sql", {"database": "session/session.db",
@@ -62,7 +63,7 @@ async def main():
             for t in tools:
                 assert t.outputSchema is not None, t.name + " missing outputSchema"
                 assert t.annotations is not None and t.annotations.readOnlyHint is True,                     t.name + " missing readOnlyHint"
-            print("  DISCOVERY OK 8 tools, all readOnlyHint + outputSchema")
+            print("  DISCOVERY OK 9 tools, all readOnlyHint + outputSchema")
 
             for name, args, key, expected in CALLS:
                 res = await s.call_tool(name, args)
@@ -119,7 +120,7 @@ async def main():
             print("  DATE ERROR CHANNEL OK; stdio session remains usable")
             print("  LEGACY SNAPSHOT METADATA OK read time is not capture time")
 
-    print("MCP_STDIO_OK — 8 tools + SQL/page/BLOB/date/metadata regressions over real MCP stdio")
+    print("MCP_STDIO_OK — 9 tools + SQL/page/BLOB/date/metadata regressions over real MCP stdio")
 
 
 if __name__ == "__main__":

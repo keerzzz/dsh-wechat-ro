@@ -1,10 +1,10 @@
 import type { JsonObject } from './wire.js';
 /** Hard ceilings; options may lower them, never enlarge them. */
 export declare const ARCHIVE_ACCESS_LIMITS: {
-  readonly maxRows: 200; readonly maxBytes: 131072; readonly queryTimeoutMs: 5000;
+  readonly maxRows: 200; readonly maxBytes: 131072; readonly queryTimeoutMs: 15000;
   readonly maxOffset: 1000; readonly maxTalkers: 128; readonly maxEntries: 256;
   readonly maxDirectories: 16; readonly maxFiles: 32; readonly maxDepth: 4;
-  readonly maxDbBytes: 134217728; readonly maxTotalDbBytes: 536870912;
+  readonly maxDbBytes: 134217728; readonly maxTotalDbBytes: 805306368;
   readonly maxReadRows: 5000; readonly maxTables: 128;
 };
 export type ArchiveAccessErrorCode = 'invalid-options' | 'invalid-request' | 'invalid-session'
@@ -27,7 +27,7 @@ export interface ArchiveAccessOptions {
   readonly maxRows?: number;
   /** Entire UTF-8 page JSON, integer 512..131072; default 65536. */
   readonly maxBytes?: number;
-  /** Fixed Node child wall deadline including startup, integer 1..5000; default 3000. */
+  /** Fixed Node child wall deadline including startup, integer 1..15000; default 10000. */
   readonly queryTimeoutMs?: number;
   /** Integer 0..1000; default 1000. */
   readonly maxOffset?: number;
@@ -52,7 +52,9 @@ export type ArchiveQuery =
   | ({ readonly action: 'sessions'; readonly talker?: string; readonly query?: string } & ArchivePaging & ArchiveTimeRange)
   | ({ readonly action: 'messages'; readonly talker: string } & ArchivePaging & ArchiveTimeRange)
   | ({ readonly action: 'stats' | 'digest'; readonly talker?: string } & ArchivePaging & ArchiveTimeRange)
-  | ({ readonly action: 'search'; readonly talker?: string; readonly query: string } & ArchivePaging & ArchiveTimeRange);
+  | ({ readonly action: 'search'; readonly talker?: string; readonly query: string; readonly sourceKind?: 'messages' | 'moments' | 'favorites' | 'miniprogram' | 'voice' | 'image' | 'video' } & ArchivePaging & ArchiveTimeRange)
+  | ({ readonly action: 'media'; readonly talker?: string; readonly sourceKind?: 'voice' | 'messages' } & ArchivePaging & ArchiveTimeRange)
+  | ({ readonly action: 'content' | 'contentStats'; readonly talker?: string; readonly query?: string; readonly sourceKind?: 'moments' | 'favorites' | 'miniprogram' | 'voice' | 'image' | 'video' } & ArchivePaging & ArchiveTimeRange);
 export interface ArchiveAccessState {
   readonly disposed: boolean; readonly granted: boolean; readonly allowWechat: boolean;
   readonly allConversations: boolean; readonly talkers: readonly string[];

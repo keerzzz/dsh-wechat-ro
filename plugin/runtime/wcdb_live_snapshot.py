@@ -298,8 +298,23 @@ def _database_paths(db_dir: str, selected_paths: list[str] | None = None) -> lis
     return sorted(result)
 
 
+def source_identity(db_path: str) -> list:
+    """Identity of one DB/WAL pair, including WAL generation; no whole-file scan."""
+    result = []
+    for suffix in ("", "-wal", "-journal"):
+        path = db_path + suffix
+        try:
+            with wcdb_key_tool._regular_file(path) as stream:
+                info = wcdb_key_tool._fingerprint(os.fstat(stream.fileno()))
+                header = stream.read(32).hex() if suffix == "-wal" else ""
+                result.append([suffix, list(info), header])
+        except FileNotFoundError:
+            result.append([suffix, None, ""])
+    return result
+
+
 def snapshot_live(db_dir: str, destination: str, keys_file: str, max_attempts: int = 3,
-                  selected_paths: list[str] | None = None) -> dict:
+                  selected_paths: list[str] | None = None, previous_snapshot: str | None = None) -> dict:
     """Atomically publish a complete generation of independently captured DB/WAL pairs."""
     db_dir, destination = wcdb_key_tool._absolute(db_dir), wcdb_key_tool._absolute(destination)
     wcdb_key_tool._reject_overlap(db_dir, destination)
@@ -311,6 +326,15 @@ def snapshot_live(db_dir: str, destination: str, keys_file: str, max_attempts: i
         raise ValueError("selected_paths 必须是唯一、明确选择的相对 .db 路径")
     keys = wcdb_key_tool._strip_key_metadata(wcdb_key_tool._read_private_json(keys_file))
     paths = _database_paths(db_dir, selected_paths)
+    previous = {}
+    previous_files = {}
+    if previous_snapshot is not None:
+        previous_snapshot = wcdb_key_tool._absolute(previous_snapshot)
+        wcdb_key_tool._reject_overlap(previous_snapshot, destination)
+        manifest = wcdb_key_tool._read_private_json(os.path.join(previous_snapshot, ".wechat-ro-manifest.json"))
+        if manifest.get("complete") and manifest.get("consistency") == CONSISTENCY:
+            previous = {item["path"]: item for item in manifest["databases"]}
+            previous_files = {item["path"]: item for item in manifest["files"]}
     with wcdb_key_tool._publication_lock(destination) as parent:
         stage, owned = wcdb_key_tool._new_stage(destination, parent)
         try:
@@ -320,9 +344,23 @@ def snapshot_live(db_dir: str, destination: str, keys_file: str, max_attempts: i
                 entry = wcdb_key_tool._get_key_info(keys, rel)
                 if not isinstance(entry, dict) or "enc_key" not in entry:
                     raise ValueError("源数据库的私有密钥集合不完整")
-                captures.append({"path": rel, **decrypt_live_database(
-                    os.path.join(db_dir, rel), os.path.join(out_dir, rel),
-                    wcdb_key_tool._secret_bytes(entry["enc_key"]), max_attempts)})
+                source_path, output_path = os.path.join(db_dir, rel), os.path.join(out_dir, rel)
+                before = source_identity(source_path)
+                old, old_file = previous.get(rel), previous_files.get(rel)
+                if old and old_file and old.get("source_identity") == before:
+                    with wcdb_key_tool._regular_file(os.path.join(previous_snapshot, rel), private=True) as stream:
+                        copied_hash = _copy_file(stream, output_path)
+                    if copied_hash != old_file["sha256"]:
+                        raise ValueError("历史副本内容与清单不匹配")
+                    metadata = {**old, "reused": True}
+                else:
+                    metadata = decrypt_live_database(source_path, output_path,
+                        wcdb_key_tool._secret_bytes(entry["enc_key"]), max_attempts)
+                    metadata["reused"] = False
+                after = source_identity(source_path)
+                if before != after:
+                    raise SourceChanged("DB/WAL 在代次构建期间发生变化")
+                captures.append({**metadata, "path": rel, "source_identity": after})
             if paths != _database_paths(db_dir, selected_paths):
                 raise SourceChanged("捕获前后数据库集合发生变化")
             files = [{"path": rel, "size": info["size"], "sha256": info["sha256"]}
@@ -334,6 +372,7 @@ def snapshot_live(db_dir: str, destination: str, keys_file: str, max_attempts: i
             wcdb_key_tool._write_private_json(os.path.join(out_dir, ".wechat-ro-manifest.json"), manifest)
             backup = wcdb_key_tool._publish_directory(stage, destination, parent)
             return {"success": len(files), "failed": 0, "total": len(files),
+                    "reused": sum(bool(item.get("reused")) for item in captures),
                     "total_bytes": sum(item["size"] for item in files),
                     "complete": True, "published": True, "backup_dir": backup,
                     "snapshot_id": manifest["snapshot_id"], "consistency": CONSISTENCY}
@@ -348,9 +387,11 @@ def main() -> None:
     parser.add_argument("--keys", required=True, help="已经授权的 0600 派生密钥 JSON 路径")
     parser.add_argument("--max-attempts", type=int, default=3, help="每库变化时最多重试 1–10 次")
     parser.add_argument("--database", action="append", help="只采集指定相对 .db 路径，可重复")
+    parser.add_argument("--previous-snapshot", help="上一代已验证 decrypted 目录，用于复用未变化的库")
     args = parser.parse_args()
     try:
-        print(json.dumps(snapshot_live(args.db_dir, args.output, args.keys, args.max_attempts, args.database), ensure_ascii=False))
+        print(json.dumps(snapshot_live(args.db_dir, args.output, args.keys, args.max_attempts,
+                                       args.database, args.previous_snapshot), ensure_ascii=False))
     except (ValueError, OSError, RuntimeError, sqlite3.Error) as error:
         # Native/SQLite exception text can contain user data; emit the error class only.
         print(json.dumps({"complete": False, "published": False, "error": type(error).__name__}))

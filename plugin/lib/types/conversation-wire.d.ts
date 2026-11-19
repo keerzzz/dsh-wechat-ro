@@ -21,7 +21,8 @@ export interface GetConversationStateRequest {
     readonly sessionId?: string;
 }
 export interface ArchiveQuery {
-    readonly action: 'status' | 'contacts' | 'sessions' | 'messages' | 'search' | 'stats' | 'digest';
+    readonly action: 'status' | 'contacts' | 'sessions' | 'messages' | 'search' | 'stats' | 'digest' | 'content' | 'contentStats' | 'media';
+    readonly sourceKind?: 'messages' | 'moments' | 'favorites' | 'miniprogram' | 'voice';
     readonly talker?: string;
     readonly query?: string;
     readonly limit?: number;
@@ -131,6 +132,11 @@ export interface TaskConversationState {
 export type TaskConversationAction = {
     readonly kind: 'task';
 } & ({
+    readonly action: 'setModelVision';
+    readonly sessionId: string;
+    readonly enabled: boolean;
+    readonly confirmation: 'analyze-selected-media-with-current-model';
+} | {
     readonly action: 'setDailyCardTime';
     readonly sessionId: string;
     readonly time: string;
@@ -279,7 +285,7 @@ export type TaskConversationAction = {
     readonly action: 'queryFiles';
     readonly sessionId: string;
     readonly query: Extract<TaskFileRequest, {
-        readonly action: 'list' | 'read';
+        readonly action: 'list' | 'read' | 'analyze';
     }>;
 });
 export type TaskConversationActionResult = {
@@ -325,7 +331,7 @@ export interface TaskConversationWire {
     readonly firstTextModelRequestSchema: z.ZodType<TaskFirstTextModelRequest>;
     readonly sourceQuerySchema: z.ZodType<TaskSourceQuery>;
     readonly fileQuerySchema: z.ZodType<Extract<TaskFileRequest, {
-        readonly action: 'list' | 'read';
+        readonly action: 'list' | 'read' | 'analyze';
     }>>;
 }
 export type ConversationMethod = 'getConversationState' | 'conversationAction';

@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 
 const helper = fileURLToPath(new URL('../runtime/prepare_local_history.py', import.meta.url));
 const prepared = z.object({ account_ref: z.string().regex(/^[a-f0-9]{12}$/), snapshot_directory: z.string().startsWith('/'),
-  captured_at: z.string(), snapshot_id: z.string().regex(/^[a-f0-9]{32}$/), changed: z.boolean(), database_count: z.number().int().min(3).max(31) });
+  captured_at: z.string(), snapshot_id: z.string().regex(/^[a-f0-9]{32}$/), changed: z.boolean(), database_count: z.number().int().min(3).max(31),
+  content_sources: z.array(z.enum(['moments', 'favorites', 'miniprogram', 'voice', 'image', 'video'])).optional() });
 
 export function runLocalHistory(command, signal, onProgress = () => {}, lease) {
   if (!['import', 'refresh'].includes(command) || signal?.aborted) return Promise.reject(new Error('CANCELLED'));
@@ -59,7 +60,8 @@ export function createLocalHistory({ data, isIdle, intervalMs = 60000, run = run
     return { version: 1, enabled: value?.enabled === true, phase: value?.phase ?? 'not-imported',
       autoUpdate: value?.autoUpdate === true, capturedAt: value?.record?.captured_at ?? null,
       accountRef: value?.record?.account_ref ?? null,
-      lastCheckedAt: value?.checked ?? null, databaseCount: value?.record?.database_count ?? 0, error: value?.error ?? null };
+      lastCheckedAt: value?.checked ?? null, databaseCount: value?.record?.database_count ?? 0,
+      contentSources: value?.record?.content_sources ?? [], error: value?.error ?? null };
   }
   async function check(id, signal, initial = false, background = false) {
     const value = entries.get(id);
@@ -100,9 +102,11 @@ export function createLocalHistory({ data, isIdle, intervalMs = 60000, run = run
     clearTimeout(value.timer);
     if (disposed || !value.enabled || !value.autoUpdate) return;
     value.timer = setTimeout(async () => {
-      if (isIdle(id)) await check(id, undefined, false, true);
-      if (isIdle(id) && value.enabled) await onTick?.(id);
-      schedule(id, value);
+      try {
+        if (isIdle(id)) await check(id, undefined, false, true);
+        if (isIdle(id) && value.enabled) await onTick?.(id, value.control.signal);
+      } catch { /* Content failures do not stop history updates or the next tick. */ }
+      finally { schedule(id, value); }
     }, intervalMs);
     value.timer.unref?.();
   }

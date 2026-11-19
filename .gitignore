@@ -37,3 +37,6 @@ key_info.dat
 # Curated, security-sensitive vendored source must remain discoverable.
 !/vendor/
 !/ui-preview/vendor/
+
+# Live UI review contains this user's private WeChat records.
+/.impeccable/review/

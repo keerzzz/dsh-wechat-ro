@@ -22,6 +22,26 @@ def _snap() -> D.Snapshot:
     return D.get_snapshot(snapshot_root())
 
 
+def content(source: str = "moments", query: str = "", limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    """Read the plugin's normalized collection index, preserving its references."""
+    if source not in ("moments", "favorites", "miniprogram", "voice", "image", "video") or not isinstance(query, str):
+        raise ValueError("无效的内容来源或关键词")
+    if type(limit) is not int or not 1 <= limit <= D.MAX_ROWS or type(offset) is not int or not 0 <= offset <= 10000:
+        raise ValueError("无效的分页范围")
+    snap = _snap()
+    path = snap.root / "content/content.db"
+    if not path.exists():
+        return {"rows": [], "available": False, "notes": ["请通过插件导入新的微信内容来源"]}
+    with D.ro(path, root=snap.root) as conn:
+        where = "kind=? AND instr(lower(coalesce(title,'') || char(10) || coalesce(content,'') || char(10) || coalesce(url,'')),lower(?))>0"
+        total = conn.execute("SELECT count(*) FROM records WHERE " + where, (source, query)).fetchone()[0]
+        rows = D.fetch(conn, "SELECT record_ref,kind,talker,ts,title,content,url FROM records WHERE " + where + " ORDER BY ts DESC,record_ref LIMIT ? OFFSET ?", (source, query, limit, offset))
+    for row in rows:
+        row["localTime"] = D.norm_ts(row["ts"])[1]
+        row["citation"] = {"recordRef": row.pop("record_ref")}
+    return {"available": True, "source": source, "total": total, "returned": len(rows), "rows": rows, "has_more": offset + len(rows) < total, "untrusted": True, "timezone": "Asia/Shanghai"}
+
+
 def _notes(snap: D.Snapshot) -> list[str]:
     if snap.dbs:
         return list(snap.notes)

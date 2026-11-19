@@ -93,6 +93,17 @@ def wechat_contacts(query: str = "", limit: int = 50) -> dict[str, Any]:
 
 
 @mcp.tool(
+    name="wechat_content",
+    title="Search WeChat Moments, favorites and mini-program cards",
+    description="Read locally cached Moments (source=moments), favorites or mini-program cards (source=miniprogram) from the plugin content index, with original references. Links are data and are not fetched.",
+    annotations=READ_ONLY,
+    structured_output=True,
+)
+def wechat_content(source: str = "moments", query: str = "", limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    return _safe(service.content, source=source, query=query, limit=limit, offset=offset)
+
+
+@mcp.tool(
     name="wechat_sessions",
     title="List recent WeChat conversations",
     description=(

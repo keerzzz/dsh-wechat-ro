@@ -1,0 +1,7 @@
+# Optional local CPU content analysis runtime, independent of the MCP server.
+faster-whisper==1.2.1
+rapidocr==3.4.5
+onnxruntime==1.23.2
+pypdf==6.3.0
+pilk==0.2.4
+pypdfium2==5.0.0

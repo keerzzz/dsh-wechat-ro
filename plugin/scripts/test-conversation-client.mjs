@@ -9,7 +9,7 @@ const assert = { ...strictAssert, equal(actual, expected, message) {
   if (actual?.nodeType || expected?.nodeType) return strictAssert.equal(actual === expected, true, message || 'DOM node identity differs');
   return strictAssert.equal(actual, expected, message);
 } };
-import { readFileSync, realpathSync } from 'node:fs'
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import ts from 'typescript'
 import { EventEmitter } from 'node:events'
 import { createRequire, registerHooks } from 'node:module'
@@ -367,6 +367,7 @@ try {
   let nextStateRead = null
   let nextTextOnce = null
   let deferredTextOnce = null
+  let historySourcesMode = 'failed'
   const taskRpc = async (endpoint, request, signal) => {
     if (endpoint.endsWith('/getConversationState')) {
       hostWire.TASK_WIRE.getStateRequestSchema.parse(request)
@@ -568,6 +569,12 @@ try {
     }
     if (request.action === 'queryFiles' || request.action === 'querySource') {
         const value = request.query
+      if (request.action === 'querySource' && value.action === 'archive' && (['content', 'contentStats', 'media'].includes(value.query.action) || value.query.action === 'contacts' && historySourcesMode === 'ready')) {
+        if (historySourcesMode === 'failed') return { ok: true, value: { ok: false, error: { code: 'SNAPSHOT_DENIED' } } };
+        const rows = value.query.action === 'contentStats' ? [{ sourceKind: 'moments', total: 1 }, { sourceKind: 'media', total: 1 }]
+          : historySourcesMode === 'empty' ? [] : value.query.action === 'contacts' ? [{ talker: 'alice', displayName: 'Synthetic contact' }] : [{ sourceKind: value.query.action === 'media' ? 'image' : 'moments', talker: 'alice', id: '12', ts: 1700000000, title: 'Synthetic source', content: 'Synthetic source content', localTime: '2023-11-15T06:13:20+08:00', citation: { snapshotRef: 'a'.repeat(24), recordRef: 'b'.repeat(32) } }];
+        return success(id, { action: value.query.action, rows, returned: rows.length, offset: 0, hasMore: false });
+      }
       if (request.action === 'querySource' && value.action === 'status') {
         const history = historyFor(id)
         return success(id, { action: 'status', untrusted: true, historicalContext: await history.inspect(id, signal), firstTextContext: history.firstText.status(id) })
@@ -2600,6 +2607,25 @@ try {
   assert.equal(taskActions('refreshDailyCards').length,1);
   for(const wire of [hostWire.TASK_WIRE,client.__conversationWire.taskWire]) assert.equal(wire.actionSchema.safeParse({kind:'task',sessionId:TASK1,action:'setDailyCardTime',time:'25:00'}).success,false);
   passTask('daily charts, per-conversation source tabs, mixed-source citations, empty states and editable schedule use the exact Task');
+  await act(async()=>fireEvent.click(within(dailyPanel).getByRole('tab',{name:te.historySources,exact:true})));
+  const sourceHistory = dailyPanel.querySelector('[data-history-sources]');
+  assert.ok(sourceHistory.querySelector('[role="alert"]'));
+  assert.equal(sourceHistory.querySelector('.wd-empty'),null,'Failed reads must not claim zero matching records');
+  if (process.env.WECHAT_HISTORY_FAILURE_HTML) writeFileSync(process.env.WECHAT_HISTORY_FAILURE_HTML, '<!doctype html><meta charset="utf-8"><title>History failure state fixture</title><style>body{margin:0;padding:32px;background:#151517;color:#f9fafb;font:14px system-ui;--dsw-alias-bg-base:#151517;--dsw-alias-bg-layer-1:#232324;--dsw-alias-bg-layer-2:#2c2c2e;--dsw-alias-label-primary:#f9fafb;--dsw-alias-label-secondary:#cfd3d6;--dsw-alias-border-l1:#ffffff0f;--dsw-alias-border-l2:#ffffff1f;--dsw-alias-brand-primary:#f9fafb}.wechat-daily-data{max-width:400px;margin:0 auto}.wc-field{display:flex;flex-direction:column;gap:4px}.wi-query{display:flex;flex-direction:column;gap:8px}.wi-note{font-size:12px;color:#cfd3d6}h1{font-size:18px;margin:0 0 24px}</style><h1>Failed-read fixture · synthetic data</h1><section class="wechat-daily-data">'+dailyPanel.querySelector('style').outerHTML+sourceHistory.outerHTML+'</section>');
+  historySourcesMode='empty';
+  await act(async()=>fireEvent.submit(sourceHistory.querySelector('form')));
+  assert.equal(sourceHistory.querySelector('[role="alert"]'),null);
+  assert.ok(sourceHistory.querySelector('.wd-empty'));
+  historySourcesMode='ready';
+  await act(async()=>fireEvent.submit(sourceHistory.querySelector('form')));
+  assert.equal(sourceHistory.querySelector('.wd-empty'),null);
+  assert.equal(sourceHistory.querySelectorAll('[data-history-record="moments"]').length,1);
+  await act(async()=>fireEvent.click(within(sourceHistory).getByRole('tab',{name:te.historyContacts,exact:true})));
+  assert.equal(sourceHistory.querySelectorAll('[data-history-record="contacts"]').length,1);
+  await act(async()=>fireEvent.click(within(sourceHistory).getByRole('tab',{name:te.historyMedia,exact:true})));
+  assert.equal(sourceHistory.querySelectorAll('[data-history-record="media"]').length,1);
+  assert.equal(taskActions('querySource').at(-1).request.query.query.sourceKind,'messages');
+  passTask('history failed/empty/populated states and image/video tab preserve exact Task source scope');
   await act(async()=>fireEvent.click(within(localHistoryPanel).getByRole('button', { name: te.localHistoryStop, exact: true })));
   assert.equal(taskActions('refreshLocalHistory').length, 1);assert.equal(taskActions('stopLocalHistory').length, 1);
   passTask('one-click history import requires explicit consent and retains exact Task identity; refresh and stop use owner actions');
