@@ -1080,6 +1080,10 @@ test('managed snapshot refresh keeps granted scope, source generation and sharin
   } finally { await f.dispose(); }
 });
 
+// An archive whose unscoped search genuinely exceeds the read budget: many
+// conversations each holding many messages. The budget is spent on message
+// candidates, not on the address book, so scoping the search to one
+// conversation is what makes it fit — the property these tests assert.
 async function archiveQueryBudgetFixture(f) {
   const root = join(f.root, 'archive-query-budget'), alpha = 'synthetic-budget-alpha';
   await mkdir(join(root, 'contact'), { recursive: true, mode: 0o700 });
@@ -1093,9 +1097,22 @@ async function archiveQueryBudgetFixture(f) {
   contacts.exec('COMMIT');
   contacts.close();
   const messages = new DatabaseSync(join(root, 'message/message0.db'));
-  const table = 'Msg_' + createHash('md5').update(alpha).digest('hex');
-  messages.exec('PRAGMA journal_mode=DELETE; CREATE TABLE "' + table + '"(local_id INTEGER, create_time INTEGER, message_content TEXT, local_type INTEGER)');
-  messages.prepare('INSERT INTO "' + table + '" VALUES(?,?,?,1)').run(1, 1700000000, 'SYNTHETIC_SCOPED_ARCHIVE_MESSAGE');
+  messages.exec('PRAGMA journal_mode=DELETE');
+  const alphaTable = 'Msg_' + createHash('md5').update(alpha).digest('hex');
+  messages.exec('CREATE TABLE "' + alphaTable + '"(local_id INTEGER, create_time INTEGER, message_content TEXT, local_type INTEGER)');
+  messages.prepare('INSERT INTO "' + alphaTable + '" VALUES(?,?,?,1)').run(1, 1700000000, 'SYNTHETIC_SCOPED_ARCHIVE_MESSAGE');
+  // 60 conversations x 100 rows each = 6000 candidates, above the 5000-row
+  // budget, so an unscoped search fails before returning a page. The names
+  // must match contact rows: index 0 above is alpha, so the unrelated rows
+  // start at 1.
+  messages.exec('BEGIN');
+  for (let user = 1; user <= 60; user++) {
+    const name = 'Msg_' + createHash('md5').update('synthetic-budget-unrelated-' + user).digest('hex');
+    messages.exec('CREATE TABLE "' + name + '"(local_id INTEGER, create_time INTEGER, message_content TEXT, local_type INTEGER)');
+    const row = messages.prepare('INSERT INTO "' + name + '" VALUES(?,?,?,1)');
+    for (let index = 0; index < 100; index++) row.run(index, 1700000000 + index, 'Synthetic filler ' + index);
+  }
+  messages.exec('COMMIT');
   messages.close();
   return { root, alpha, grant: { root, allConversations: true, talkers: [], fromTs: null, toTs: null, allowWechat: true, confirmation: 'read-decrypted-snapshot' } };
 }
