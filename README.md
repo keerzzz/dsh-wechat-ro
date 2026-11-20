@@ -35,17 +35,17 @@
 
 ## 快速开始
 
-插件当前版本 **0.2.2-rc.2**，支持官方 **DSH `>=0.2.2-rc.5 <0.3.0`**，Node.js **`>=24.9.0`**。本机验证使用官方 npm DSH **0.2.2-rc.5**、Node.js **24.15.0**、pnpm **10.34.1**。安装与启用见[安装指南](docs/installation.md)，已有用户见[升级说明](docs/upgrading-0.2.1.md)。
+插件当前版本 **0.2.2-rc.3**，支持官方 **DSH `>=0.2.2-rc.5 <0.3.0`**，Node.js **`>=24.9.0`**。本机验证使用官方 npm DSH **0.2.2-rc.5**、Node.js **24.15.0**、pnpm **10.34.1**。安装与启用见[安装指南](docs/installation.md)，已有用户见[升级说明](docs/upgrading-0.2.1.md)。
 
 打开 DSH **插件 → 添加插件**，在 **包名或地址** 中只填写这一行：
 
 ```text
-https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.2/dsh-wechat-ro-0.2.2-rc.2.tgz
+https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.3/dsh-wechat-ro-0.2.2-rc.3.tgz
 ```
 
 点击 **安装 → 立即启用**。这是包含运行入口、界面和采集助手的预构建包。进入原生会话，选择目录和模型，打开微信侧栏并扫码；随后一键导入历史，再设置每日卡片更新时间。
 
-如果宿主无法访问 GitHub，先从 [Release](https://github.com/keerzzz/dsh-wechat-ro/releases/tag/v0.2.2-rc.2) 下载 `.tgz` 并传到宿主，在同一输入框填写该文件的绝对路径。
+如果宿主无法访问 GitHub，先从 [Release](https://github.com/keerzzz/dsh-wechat-ro/releases/tag/v0.2.2-rc.3) 下载 `.tgz` 并传到宿主，在同一输入框填写该文件的绝对路径。
 
 ### 从源码安装
 
