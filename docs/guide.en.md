@@ -58,7 +58,7 @@ The stdio service provides status, contacts, sessions, messages, search, timelin
 
 ## Current progress
 
-Daily summaries page through the full day, continue long text and merge validated batches. Completed batches persist and resume after input verification. Confirm a to-do lead as your task or name an assignee, then mark it complete or reopen it; confirmed tasks remain across report dates. Successful connection/import saves run intent. Host startup verifies the same Task, workspace, account and pairing before restoring updates and replies. A real model summary and repeated scheduled runs still need on-device validation.
+Daily summaries page through the full day, continue long text and merge validated batches. Completed batches persist and resume after input verification. Confirm a to-do lead as your task or name an assignee, then mark it complete or reopen it; confirmed tasks remain across report dates. Successful connection/import saves run intent. Host startup verifies the same Task, workspace, account and pairing before restoring updates and replies. Full-day model summaries and restart recovery have passed Linux on-device validation. Repeated scheduled runs still need another actual day boundary.
 
 Moments and internal mini-program data are not integrated. Dedicated parsing of mini-program chat cards also needs validation. Public and service account tabs classify imported chat records.
 
