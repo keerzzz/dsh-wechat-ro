@@ -373,7 +373,8 @@
     "dailyMergingProgress": "Merging batch summaries…",
     "dailyChunkProgress": "{done}/{chunks} batches complete · {total} daily texts",
     "localHistoryAccountChanged": "The signed-in WeChat account changed. Automatic recovery stopped; confirm the account and import again.",
-    "dailyFailedTimeout": "This summary request timed out. Completed batches are saved and will resume on the next update."
+    "dailyFailedTimeout": "This summary request timed out. Completed batches are saved and will resume on the next update.",
+    "dailyCitationPreview": "Original preview is shortened"
   },
   "tabs": {
     "overview": "Overview",
