@@ -880,7 +880,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
           await localHistory.refresh(id, signal); result = localHistory.state(id); break;
         case 'stopLocalHistory': await clearIntent(id); await stop(id); dailyCards?.stop(id); result = localHistory.stop(id); break;
         case 'confirmDailyTodo':
-        case 'setDailyTodoState': result = await dailyCards.manageTodo(id, request); break;
+        case 'setDailyTodoState': result = await dailyCards.manageTodo(id, request, signal); break;
         case 'setModelVision': result = await taskData.setModelVision(id, request.enabled); break;
         case 'setDailyCardTime': result = await dailyCards.settings(id, request.time); break;
         case 'refreshDailyCards': {

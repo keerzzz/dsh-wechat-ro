@@ -148,8 +148,8 @@ export function createDailyCards({ storage, query, summarize, isIdle, source, no
     e.record ??= table.get(id) ?? { time: '08:00', account: live.accountRef, nextDay: dailyCardClock(now()).dueDay, reports: [] };
     if (e.record.account !== live.accountRef) e.record = { time: e.record.time, account: live.accountRef, nextDay: dailyCardClock(now(), e.record.time).dueDay, reports: [] };
   }
-  async function manageTodo(id, request) {
-    await wait(id); await load(id);
+  async function manageTodo(id, request, signal) {
+    await wait(id); signal?.throwIfAborted(); await load(id); signal?.throwIfAborted();
     const e = entries.get(id), live = source(id);
     if (!e?.record || !live?.enabled || e.record.account !== live.accountRef) throw new Error('LOCAL_HISTORY_REQUIRED');
     const tracked = structuredClone(e.record.trackedTodos ?? []);

@@ -67,7 +67,7 @@ export declare function createDailyCards(options: {
         action: 'setDailyTodoState';
         todoId: string;
         completed: boolean;
-    }): Promise<DailyCardsState>;
+    }, signal?: AbortSignal): Promise<DailyCardsState>;
     settings(id: string, time: string): Promise<DailyCardsState>;
     update(id: string, force?: boolean): Promise<void>;
     wait(id: string): Promise<void> | undefined;

@@ -262,3 +262,16 @@ test('long-text continuation cannot join two different snapshots with the same r
   const cards = f.create(); await cards.update('task');
   assert.equal(cards.state('task').phase, 'failed'); assert.equal(summaries, 0); assert.deepEqual(cards.state('task').reports, []); await cards.dispose();
 });
+
+test('cancelled Owner task update cannot write after waiting for a summary batch', async () => {
+  let release, started, calls = 0;
+  const gate = new Promise(resolve => { release = resolve; }), entered = new Promise(resolve => { started = resolve; });
+  const f = fixture({ summarize: async () => { if (++calls === 2) { started(); await gate; } return model(); } });
+  const cards = f.create(); await cards.update('task'); const lead = cards.state('task').reports[0].todos[0];
+  await cards.manageTodo('task', { action: 'confirmDailyTodo', day: '2026-11-18', todoId: lead.id, assignee: 'Me' });
+  const running = cards.update('task', true); await entered;
+  const control = new AbortController(), pending = cards.manageTodo('task', { action: 'setDailyTodoState', todoId: lead.id, completed: true }, control.signal);
+  control.abort(); release(); await running;
+  await assert.rejects(pending, { name: 'AbortError' }); assert.equal(cards.state('task').trackedTodos[0].completedAt, null);
+  await cards.dispose();
+});
