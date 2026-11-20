@@ -182,13 +182,34 @@ function sessions(catalog, scope, q, budget) {
       .map(r => ({ talker: text(r.talker), ts: r.ts, summary: text(r.summary), summaryTruncated: Boolean(r.cut) }));
   });
 }
+// Identities that a message page can actually return: the owner of every
+// Msg_<md5(talker)> table present in the message databases. Whole-directory
+// authority used to read all of contact.db on every page, and no page can
+// return a row for an identity without a message table. On the recorded
+// archive that was 3,892 of a 5,000-row budget (77.8%) spent per page before
+// the page itself was read, so a 349-text day spanning 7-9 pages walked the
+// fixed budget for rows that were then discarded. statistics() already scoped
+// the same read this way; this makes the two agree.
+function messageHashes(catalog) {
+  const hashes = new Set();
+  for (const rel of catalog.metadata.files.filter(path => path.startsWith('message/'))) withDb(catalog, rel, db => {
+    for (const table of tables(db, catalog.limits)) if (/^Msg_[a-f0-9]{32}$/i.test(table.name)) hashes.add(table.name.slice(4).toLowerCase());
+  });
+  return hashes;
+}
 function authorizedTalkers(catalog, scope, q, budget) {
   if (q.talker !== undefined) return [q.talker]; if (!scope.allConversations) return scope.talkers;
+  const hashes = [...messageHashes(catalog)];
+  if (!hashes.length) return [];
   return withDb(catalog, 'contact/contact.db', db => {
     const t = knownTable(db, catalog.limits, ['contact', 'friend', 'user', 'WCContact'], CONTACT, ['talker']);
-    // Whole-archive authority is bounded by total rows read. maxTalkers limits
-    // explicitly selected ACL lists, not the size of an authorized directory.
-    const rows = selected(db, 'SELECT ' + bounded(qi(t.cols.talker), 256) + ' AS talker, typeof(' + qi(t.cols.talker) + ")='blob' OR length(CAST(" + qi(t.cols.talker) + ' AS BLOB)) > 256 AS bad FROM ' + qi(t.name) + ' ORDER BY talker COLLATE BINARY LIMIT ?', [budget.max - budget.count + 1], budget);
+    // Whole-archive authority is still bounded by total rows read. maxTalkers
+    // limits explicitly selected ACL lists, not the size of an authorized
+    // directory, so the bound stays the row budget and the identity list is
+    // narrowed by what the message databases can match.
+    db.function('_archive_hash', { deterministic: true }, value => typeof value === 'string' ? createHash('md5').update(value).digest('hex') : null);
+    const rows = selected(db, 'SELECT ' + bounded(qi(t.cols.talker), 256) + ' AS talker, typeof(' + qi(t.cols.talker) + ")='blob' OR length(CAST(" + qi(t.cols.talker) + ' AS BLOB)) > 256 AS bad FROM ' + qi(t.name)
+      + ' WHERE _archive_hash(' + qi(t.cols.talker) + ') IN (' + hashes.map(() => '?').join(',') + ') ORDER BY talker COLLATE BINARY LIMIT ?', [...hashes, budget.max - budget.count + 1], budget);
     if (rows.some(r => r.bad || !r.talker || Buffer.byteLength(r.talker) > 256)) fail('unsupported-content');
     return [...new Set(rows.map(r => text(r.talker)))];
   });

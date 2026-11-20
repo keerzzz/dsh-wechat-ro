@@ -442,12 +442,40 @@ try {
     db.exec('COMMIT'); db.close();
     await all.grant('all', grantFor(people, { allConversations: true, talkers: [] }));
     assert.equal((await all.query('all', { action: 'search', query: 'needle' })).rows.length, 4);
+    // Contact rows without a message table cannot produce a result, so the
+    // identity read no longer scales with the address book. Its bound is now
+    // structural — maxFiles message databases times maxTables tables each —
+    // which stays below maxReadRows, so an oversized contact table is no
+    // longer a runtime failure but an unreachable one. The property that
+    // still has to hold is that the real conversations remain readable.
     db = new DatabaseSync(join(people, 'contact/contact.db')); db.exec('BEGIN');
     const overflow = db.prepare('INSERT INTO contact VALUES(?,?,?,?)');
     for (let i = 3886; i < ARCHIVE_ACCESS_LIMITS.maxReadRows; i++) overflow.run('extra-' + i, '', '', '');
     db.exec('COMMIT'); db.close();
     await all.grant('all', grantFor(people, { allConversations: true, talkers: [] }));
-    await rejects(() => all.query('all', { action: 'search', query: 'needle' }), 'row-budget-exceeded');
+    assert.equal((await all.query('all', { action: 'search', query: 'needle' })).rows.length, 4);
+    assert.ok(ARCHIVE_ACCESS_LIMITS.maxFiles * ARCHIVE_ACCESS_LIMITS.maxTables < ARCHIVE_ACCESS_LIMITS.maxReadRows,
+      'the identity read is bounded by message databases and tables, which must stay below the row budget');
+    // A page must not pay for the address book on every read. The identity
+    // read used to select the whole contact table, so a padded address book
+    // spent the row budget before the page was read and a day spanning
+    // several pages failed partway through. Reading the same page twice must
+    // therefore cost the same and stay well inside the budget no matter how
+    // many contact rows exist.
+    const wide = fixture('wide-address-book', { betaText: true });
+    db = new DatabaseSync(join(wide, 'contact/contact.db')); db.exec('BEGIN');
+    const pad = db.prepare('INSERT INTO contact VALUES(?,?,?,?)');
+    for (let i = 0; i < 3800; i++) pad.run('pad-' + i, '', '', '');
+    db.exec('COMMIT'); db.close();
+    const wideAccess = factory(['wide']).access; await wideAccess.grant('wide', grantFor(wide, { allConversations: true, talkers: [] }));
+    const widePage = await wideAccess.query('wide', { action: 'search', query: 'needle', limit: 20, offset: 0 });
+    assert.equal(widePage.rows.length, 4, 'a padded address book must not change which conversations are readable');
+    // Same query against an archive whose address book is small: the page is
+    // identical, so the address book no longer scales the read.
+    const narrow = fixture('narrow-address-book', { betaText: true });
+    const narrowAccess = factory(['narrow']).access; await narrowAccess.grant('narrow', grantFor(narrow, { allConversations: true, talkers: [] }));
+    const narrowPage = await narrowAccess.query('narrow', { action: 'search', query: 'needle', limit: 20, offset: 0 });
+    assert.deepEqual(widePage.rows.map(row => row.talker), narrowPage.rows.map(row => row.talker));
   });
   const heavy = fixture('heavy', { betaText: true });
   {
