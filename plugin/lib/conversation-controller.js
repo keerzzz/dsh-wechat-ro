@@ -292,6 +292,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
       if (value.sessionId !== id || !value.intent) continue;
       const next = { ...value };
       if (mode === 'reply' && value.intent.history) next.intent = { ...value.intent, reply: false };
+      else if (mode === 'history' && value.intent.reply) { const { history, ...intent } = value.intent; next.intent = intent; }
       else delete next.intent;
       await bindings.put(origin, next);
     }
@@ -841,7 +842,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
     let control;
     if (emergency) {
       activeActions.get(id)?.abort();
-      if (task) await stop(id);
+      if (task && request.action !== 'stopLocalHistory') await stop(id);
     } else {
       control = new AbortController();
       activeActions.set(id, control);
@@ -878,7 +879,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
         case 'refreshLocalHistory':
           if (service('agents')?.get?.(id)?.status === 'running') fail('BUSY');
           await localHistory.refresh(id, signal); result = localHistory.state(id); break;
-        case 'stopLocalHistory': await clearIntent(id); await stop(id); dailyCards?.stop(id); result = localHistory.stop(id); break;
+        case 'stopLocalHistory': await clearIntent(id, 'history'); dailyCards?.stop(id); result = localHistory.stop(id); break;
         case 'confirmDailyTodo':
         case 'setDailyTodoState': result = await dailyCards.manageTodo(id, request, signal); break;
         case 'setModelVision': result = await taskData.setModelVision(id, request.enabled); break;

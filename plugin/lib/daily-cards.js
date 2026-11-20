@@ -19,7 +19,7 @@ const hash = value => createHash('sha256').update(JSON.stringify(value)).digest(
 const signature = stats => hash([stats.messageCount, stats.textCount, stats.lastMessageTs, stats.contentSignature ?? null, stats.conversations.map(({ sourceKind, ...row }) => row)]);
 // Each query keeps the existing byte/row limits. A whole day has a separate
 // bounded buffer because the history is untrusted and the test heap is 512 MiB.
-const DAY_BYTES = 32 * 1024 * 1024, RECORD_BATCH_BYTES = 12500, MERGE_BATCH_BYTES = 50000;
+const DAY_BYTES = 32 * 1024 * 1024, RECORD_BATCH_BYTES = 12500, MERGE_BATCH_BYTES = 12500;
 const summaryJson = text => summarySchema.parse(JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()));
 const rawSummary = value => ({ highlights: value.highlights.map(({ text, refs }) => ({ text, refs })), todos: value.todos.map(({ text, refs, assignee }) => ({ text, refs, assignee })) });
 function batches(values, limit) {
@@ -251,7 +251,7 @@ export function createDailyCards({ storage, query, summarize, isIdle, source, no
             for (const chunk of batches(candidates, MERGE_BATCH_BYTES)) {
               if (chunk.length === 1) { merged.push({ highlights: chunk[0].kind === 'highlights' ? [{ text: chunk[0].text, refs: chunk[0].refs }] : [], todos: chunk[0].kind === 'todos' ? [{ text: chunk[0].text, refs: chunk[0].refs, assignee: chunk[0].assignee }] : [] }); continue; }
               const allowed = [...new Set(chunk.flatMap(item => item.refs))].map(ref => index.get(ref));
-              const result = await step(hash(['merge', chunk]), instructions + ' 以下是已按原文引用校验的分批结果。合并重复事项，整合相关事实，保留不同来源归属和原引用，减少条目数量，不添加新事实。\n' + JSON.stringify(chunk), allowed);
+              const result = await step(hash(['merge', MERGE_BATCH_BYTES, chunk]), instructions + ' 以下是已按原文引用校验的分批结果。合并重复事项，整合相关事实，保留不同来源归属和原引用，每批合并后重点最多4项、待办最多6项。减少条目数量，不添加新事实。\n' + JSON.stringify(chunk), allowed);
               if (!result) { e.phase = 'ready'; return; }
               merged.push(result);
             }
@@ -270,10 +270,10 @@ export function createDailyCards({ storage, query, summarize, isIdle, source, no
         await table.put(id, e.record); e.phase = 'ready';
       } catch (error) {
         e.phase = signal.aborted ? 'waiting' : 'failed';
-        e.error = signal.aborted ? null : error?.code ?? (error?.message === 'UNKNOWN_CITATION' || error instanceof z.ZodError || error instanceof SyntaxError ? 'INVALID_SUMMARY' : 'UPDATE_FAILED');
+        e.error = signal.aborted ? null : typeof error?.code === 'string' ? error.code : error?.name === 'TimeoutError' ? 'SUMMARY_NOT_COMPLETED' : (error?.message === 'UNKNOWN_CITATION' || error instanceof z.ZodError || error instanceof SyntaxError ? 'INVALID_SUMMARY' : 'UPDATE_FAILED');
         // The provider-side reason stays separate from the fixed card error so a
         // rejected route is distinguishable from a truncated or revoked one.
-        const cause = error?.cause;
+        const cause = error?.name === 'TimeoutError' ? 'SUMMARY_TIMEOUT' : error?.cause;
         e.errorDetail = signal.aborted || typeof cause !== 'string' || !/^[A-Z_]{1,64}$/.test(cause) ? null : cause;
         if (e.error) console.warn('WeChat daily cards: ' + e.error + (e.errorDetail ? '/' + e.errorDetail : '') + ' (' + error.name + (/^[A-Z_]{1,80}$/.test(error.message || '') ? ': ' + error.message : '') + ')');
       } finally { e.pending = null; }

@@ -372,7 +372,8 @@
     "dailyReadingProgress": "正在读取全天 {total} 条文字…",
     "dailyMergingProgress": "正在合并分批摘要…",
     "dailyChunkProgress": "已完成 {done}/{chunks} 批 · 全天 {total} 条文字",
-    "localHistoryAccountChanged": "当前微信账号已变化，自动恢复已停止。确认账号后重新导入。"
+    "localHistoryAccountChanged": "当前微信账号已变化，自动恢复已停止。确认账号后重新导入。",
+    "dailyFailedTimeout": "本次整理超时。已完成的批次已保存，下次更新会继续。"
   },
   "tabs": {
     "overview": "概览",

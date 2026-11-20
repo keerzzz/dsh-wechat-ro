@@ -405,3 +405,15 @@ test('service startup waits for workspace and filesystem dependencies before ope
   ctx.reflect.provide('fs', {}); await eventually(() => opens === 1);
   const service = ctx.get('wechatConversation'); assert.ok(service); await service.runtime.dispose();
 });
+
+test('stopping history updates keeps an established reply loop and removes history restart intent', async () => {
+  const f = fixture({ legacyHistory: true }); await connect(f); f.scan.resolve();
+  await eventually(() => taskState(f).channel.setup.phase === 'history-required');
+  await f.runtime.action({ kind: 'task', action: 'importLocalHistory', sessionId: TASK, autoUpdate: true, allowWechat: true, confirmation: 'import-own-wechat-history' });
+  await eventually(() => f.count.sends === 1);
+  const result = await f.runtime.action({ kind: 'task', action: 'stopLocalHistory', sessionId: TASK, confirmation: 'stop-local-history-updates' });
+  assert.equal(result.ok, true); assert.equal(taskState(f).channel.localHistory.enabled, false);
+  assert.equal(taskState(f).channel.automaticPolling, true);
+  const intent = f.shared.domains.get('wechat_task_bindings_v1').get(ORIGIN).intent;
+  assert.equal(intent.reply, true); assert.equal(intent.history, undefined); await stop(f);
+});

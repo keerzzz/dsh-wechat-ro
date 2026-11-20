@@ -372,7 +372,8 @@
     "dailyReadingProgress": "Reading all {total} texts…",
     "dailyMergingProgress": "Merging batch summaries…",
     "dailyChunkProgress": "{done}/{chunks} batches complete · {total} daily texts",
-    "localHistoryAccountChanged": "The signed-in WeChat account changed. Automatic recovery stopped; confirm the account and import again."
+    "localHistoryAccountChanged": "The signed-in WeChat account changed. Automatic recovery stopped; confirm the account and import again.",
+    "dailyFailedTimeout": "This summary request timed out. Completed batches are saved and will resume on the next update."
   },
   "tabs": {
     "overview": "Overview",

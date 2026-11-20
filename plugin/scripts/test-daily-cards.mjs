@@ -275,3 +275,10 @@ test('cancelled Owner task update cannot write after waiting for a summary batch
   await assert.rejects(pending, { name: 'AbortError' }); assert.equal(cards.state('task').trackedTodos[0].completedAt, null);
   await cards.dispose();
 });
+
+test('a model timeout has a fixed string error and retains completed batches', async () => {
+  const f = fixture({ summarize: async () => { throw new DOMException('Synthetic timeout', 'TimeoutError'); } });
+  const cards = f.create(); await cards.update('task');
+  assert.equal(cards.state('task').error, 'SUMMARY_NOT_COMPLETED'); assert.equal(cards.state('task').errorDetail, 'SUMMARY_TIMEOUT');
+  assert.deepEqual(cards.state('task').reports, []); await cards.dispose();
+});
