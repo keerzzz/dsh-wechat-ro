@@ -3,7 +3,10 @@
 // truncated output, a provider rejection and a context revocation stay distinct.
 const RETRYABLE_CODES = new Set(['AUTH', 'RATE_LIMIT', 'QUOTA_EXCEEDED', 'SERVER', 'TIMEOUT', 'TRANSPORT',
   'EMPTY_RESPONSE', 'PI_AI_ERROR', 'SUMMARY_MODEL_FAILED', 'SUMMARY_TRUNCATED']);
-const DEFAULT_MAX_TOKENS = 16000, MAX_MAX_TOKENS = 64000;
+// The first budget is deliberately conservative; escalation is bounded because a
+// budget above the model's own cap is rejected outright and would turn a
+// recoverable truncation into a non-retryable INVALID_REQUEST.
+const DEFAULT_MAX_TOKENS = 16000, ESCALATED_MAX_TOKENS = 32000;
 
 function failed(code, cause) {
   const error = Object.assign(new Error(code), { code });
@@ -26,12 +29,14 @@ export function summaryRoutes(selected, fallback) {
   return routes;
 }
 
+// The route's own output cap when the adapter can report it, otherwise nothing:
+// an unknown cap must never be guessed upward.
 async function modelLimit(llm, route) {
   try {
     const info = await llm.resolveModelInfo(route.provider, route.model);
     const limit = info?.maxTokens;
-    return Number.isSafeInteger(limit) && limit > 0 ? Math.min(limit, MAX_MAX_TOKENS) : MAX_MAX_TOKENS;
-  } catch { return MAX_MAX_TOKENS; }
+    return Number.isSafeInteger(limit) && limit > 0 ? limit : null;
+  } catch { return null; }
 }
 
 async function attempt(llm, route, prompt, signal, maxTokens, byteLimit) {
@@ -61,11 +66,13 @@ export async function summarizeWithModel({ llm, routes, prompt, signal, maxToken
   let last;
   for (const route of list) {
     const ceiling = await modelLimit(llm, route);
+    const first = ceiling === null ? maxTokens : Math.min(maxTokens, ceiling);
+    const second = ceiling === null ? Math.max(first, ESCALATED_MAX_TOKENS) : ceiling;
     // The retry drops the reasoning effort: thinking tokens share the output
     // budget, so spending them again would truncate the same way.
     const ladder = [route];
-    if (ceiling > maxTokens) { const plain = { ...route }; delete plain.reasoningEffort; ladder.push(plain); }
-    const budgets = [Math.min(maxTokens, ceiling), ceiling];
+    if (second > first) { const plain = { ...route }; delete plain.reasoningEffort; ladder.push(plain); }
+    const budgets = [first, second];
     for (let index = 0; index < ladder.length; index++) {
       try {
         return await attempt(llm, ladder[index], prompt, signal, budgets[index], byteLimit);
