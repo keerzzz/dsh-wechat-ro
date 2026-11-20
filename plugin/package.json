@@ -1,6 +1,6 @@
 {
   "name": "dsh-wechat-ro",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "private": true,
   "type": "module",
   "description": "WeChat history workspace for DeepSeek Harness targeting Windows, macOS and Linux, with search, daily insight cards and read-only MCP.",

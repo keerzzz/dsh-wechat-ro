@@ -51,10 +51,12 @@ export type ArchiveQuery =
   | ({ readonly action: 'contacts'; readonly talker?: string; readonly query?: string } & ArchivePaging)
   | ({ readonly action: 'sessions'; readonly talker?: string; readonly query?: string } & ArchivePaging & ArchiveTimeRange)
   | ({ readonly action: 'messages'; readonly talker: string } & ArchivePaging & ArchiveTimeRange)
-  | ({ readonly action: 'stats' | 'digest'; readonly talker?: string } & ArchivePaging & ArchiveTimeRange)
+  | ({ readonly action: 'stats'; readonly talker?: string } & ArchivePaging & ArchiveTimeRange)
+  | ({ readonly action: 'digest'; readonly talker?: string; readonly contentOffset?: number } & ArchivePaging & ArchiveTimeRange)
   | ({ readonly action: 'search'; readonly talker?: string; readonly query: string; readonly sourceKind?: 'messages' | 'moments' | 'favorites' | 'miniprogram' | 'voice' | 'image' | 'video' } & ArchivePaging & ArchiveTimeRange)
   | ({ readonly action: 'media'; readonly talker?: string; readonly sourceKind?: 'voice' | 'messages' } & ArchivePaging & ArchiveTimeRange)
-  | ({ readonly action: 'content' | 'contentStats'; readonly talker?: string; readonly query?: string; readonly sourceKind?: 'moments' | 'favorites' | 'miniprogram' | 'voice' | 'image' | 'video' } & ArchivePaging & ArchiveTimeRange);
+  | ({ readonly action: 'content'; readonly contentOffset?: number; readonly talker?: string; readonly query?: string; readonly sourceKind?: 'moments' | 'favorites' | 'miniprogram' | 'voice' | 'image' | 'video' } & ArchivePaging & ArchiveTimeRange)
+  | ({ readonly action: 'contentStats'; readonly talker?: string; readonly query?: string; readonly sourceKind?: 'moments' | 'favorites' | 'miniprogram' | 'voice' | 'image' | 'video' } & ArchivePaging & ArchiveTimeRange);
 export interface ArchiveAccessState {
   readonly disposed: boolean; readonly granted: boolean; readonly allowWechat: boolean;
   readonly allConversations: boolean; readonly talkers: readonly string[];

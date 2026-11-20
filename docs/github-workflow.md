@@ -122,11 +122,11 @@ git switch main
 git pull --ff-only
 pnpm --dir plugin run test:ci
 pnpm --dir plugin pack --pack-destination ../dist
-git tag -a v0.2.2-rc.1 -m 'Release v0.2.2-rc.1'
-git push origin v0.2.2-rc.1
+git tag -a v0.2.2-rc.2 -m 'Release v0.2.2-rc.2'
+git push origin v0.2.2-rc.2
 ```
 
-`v0.2.2-rc.1` 是当前 package 版本示例；实际发布时使用经过确认的版本。通过 `test-package` 检查实际 tarball 后在 GitHub 创建预发布 Release，附变更、兼容环境、已完成验收及包文件。当前 package 为 `private: true`，不自动向 npm 发布；本次 CI 也不自动打标签、发 Release 或部署。
+`v0.2.2-rc.2` 是当前 package 版本示例；实际发布时使用经过确认的版本。通过 `test-package` 检查实际 tarball 后在 GitHub 创建预发布 Release，附变更、兼容环境、已完成验收及包文件。当前 package 为 `private: true`，不自动向 npm 发布；本次 CI 也不自动打标签、发 Release 或部署。
 
 主线发现问题时新建修复分支，必要时使用 `git revert <commit>` 撤销该提交，再走 PR。公开主线回退保留历史。
 

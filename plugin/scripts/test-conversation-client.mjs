@@ -385,6 +385,18 @@ try {
     hostWire.TASK_WIRE.actionSchema.parse(request)
     const id = request.sessionId ?? request.contextSessionId
     const success = (target = id, result, extra = {}) => ({ ok: true, value: hostWire.TASK_WIRE.actionResultSchema.parse({ ok: true, state: taskState(target), ...(result !== undefined ? { result } : {}), ...extra }) })
+    if (['confirmDailyTodo', 'setDailyTodoState'].includes(request.action)) {
+      const cards = taskRecord(id).channel.dailyCards;
+      cards.trackedTodos ??= [];
+      if (request.action === 'confirmDailyTodo') {
+        const report = cards.reports.find(row => row.day === request.day), item = report.todos.find(row => row.id === request.todoId);
+        const tracked = { ...item, assignee: request.assignee, day: report.day, completedAt: null };
+        cards.trackedTodos.push(tracked); item.tracked = tracked;
+      } else {
+        const tracked = cards.trackedTodos.find(row => row.id === request.todoId); tracked.completedAt = request.completed ? 1000 : null;
+      }
+      return success(id, cards);
+    }
     if (['setDailyCardTime', 'refreshDailyCards'].includes(request.action)) {
       const record = taskRecord(id);
       if (request.action === 'setDailyCardTime') record.channel.dailyCards.time = request.time;
@@ -419,6 +431,7 @@ try {
           {talker:'second@chatroom',displayName:'Second group',sourceKind:'group'},{talker:'gh_public',displayName:'Public account',sourceKind:'official'},
           {talker:'bankservice',displayName:'Service account',sourceKind:'service'}];
       }
+      for (const [i, todo] of daily.todos.entries()) { todo.id ??= (i+1).toString(16).padStart(64,'0'); todo.tracked ??= null; }
       return success(id, record.channel.localHistory);
     }
     if (request.action === 'connectConversation') {
@@ -1423,7 +1436,7 @@ try {
     assert.equal(wire.actionSchema.safeParse({ ...sampleTaskAction, workspace: { root: taskWorkspace.root, title: taskWorkspace.title, allowWechat: false } }).success, false)
     assert.equal(wire.actionSchema.safeParse({ kind: 'task', action: 'queryFiles', sessionId: TASK1, query: { action: 'create', path: 'file.md', content: 'No UI writer' } }).success, false)
     assert.equal(wire.actionSchema.safeParse({ kind: 'task', action: 'resumeConversation', sessionId, confirmation: 'resume-task-conversation' }).success, false)
-    assert.equal(wire.TASK_ACTION_NAMES.length, 35)
+    assert.equal(wire.TASK_ACTION_NAMES.length, 37)
     assert.deepEqual(Array.from(wire.TASK_ACTION_NAMES.slice(22, 30)), ['reviewHistoricalContext', 'authorizeHistoricalContext', 'revokeHistoricalContext',
       'selectFirstTextModel', 'reviewFirstTextContext', 'authorizeFirstTextContext', 'revokeFirstTextContext', 'allowNewFirstText'])
     const textOnce = { kind: 'task', action: 'pollTextOnce', sessionId: TASK1, allowSharedContext: true, confirmation: 'poll-one-text-reply' }
@@ -2607,6 +2620,21 @@ try {
   assert.equal(taskActions('refreshDailyCards').length,1);
   for(const wire of [hostWire.TASK_WIRE,client.__conversationWire.taskWire]) assert.equal(wire.actionSchema.safeParse({kind:'task',sessionId:TASK1,action:'setDailyCardTime',time:'25:00'}).success,false);
   passTask('daily charts, per-conversation source tabs, mixed-source citations, empty states and editable schedule use the exact Task');
+  await act(async()=>fireEvent.click(sourceButton('personal')));
+  const todoMine = sourcePanel().querySelector('[data-todo-mine]'); assert.ok(todoMine); assert.equal(todoMine.disabled, false);
+  await act(async()=>fireEvent.click(todoMine));
+  assert.equal(taskActions('confirmDailyTodo').at(-1).request.assignee, te.dailyMe);
+  assert.equal(taskActions('confirmDailyTodo').at(-1).request.sessionId, TASK1);
+  const trackedSection = dailyPanel.querySelector('[data-tracked-todos]');
+  assert.equal(trackedSection.querySelectorAll('[data-tracked-todo]').length,1);
+  await act(async()=>fireEvent.click(within(trackedSection).getByRole('button',{name:te.dailyMarkDone,exact:true})));
+  assert.equal(taskActions('setDailyTodoState').at(-1).request.completed,true);
+  await act(async()=>fireEvent.click(within(trackedSection).getByRole('button',{name:te.dailyReopen,exact:true,hidden:true})));
+  assert.equal(taskActions('setDailyTodoState').at(-1).request.completed,false);
+  await act(async()=>fireEvent.change(within(dailyPanel).getByLabelText(te.dailyDate),{target:{value:'2026-11-16'}}));
+  assert.equal(trackedSection.querySelectorAll('[data-tracked-todo]').length,1);
+  passTask('Owner confirms task assignee, completes/reopens and keeps the task while switching report dates');
+
   await act(async()=>fireEvent.click(within(dailyPanel).getByRole('tab',{name:te.historySources,exact:true})));
   const sourceHistory = dailyPanel.querySelector('[data-history-sources]');
   assert.ok(sourceHistory.querySelector('[role="alert"]'));

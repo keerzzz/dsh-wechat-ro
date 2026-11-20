@@ -31,7 +31,7 @@ export interface ArchiveQuery {
   readonly action: 'status' | 'contacts' | 'sessions' | 'messages' | 'search' | 'stats' | 'digest' | 'content' | 'contentStats' | 'media';
   readonly sourceKind?: 'messages' | 'moments' | 'favorites' | 'miniprogram' | 'voice';
   readonly talker?: string; readonly query?: string; readonly limit?: number;
-  readonly offset?: number; readonly fromTs?: number; readonly toTs?: number;
+  readonly offset?: number; readonly contentOffset?: number; readonly fromTs?: number; readonly toTs?: number;
 }
 export type ConversationAction =
   | { readonly action: 'createConversation'; readonly contextSessionId: string; readonly confirmation: 'create-readonly-conversation' }
@@ -73,6 +73,8 @@ export type TaskConversationAction = { readonly kind: 'task' } & (
   | { readonly action: 'setModelVision'; readonly sessionId: string; readonly enabled: boolean; readonly confirmation: 'analyze-selected-media-with-current-model' }
   | { readonly action: 'setDailyCardTime'; readonly sessionId: string; readonly time: string }
   | { readonly action: 'refreshDailyCards'; readonly sessionId: string }
+  | { readonly kind: 'task'; readonly sessionId: string; readonly action: 'confirmDailyTodo'; readonly day: string; readonly todoId: string; readonly assignee: string }
+  | { readonly kind: 'task'; readonly sessionId: string; readonly action: 'setDailyTodoState'; readonly todoId: string; readonly completed: boolean }
   | { readonly action: 'importLocalHistory'; readonly sessionId: string; readonly autoUpdate: boolean; readonly allowWechat: boolean; readonly confirmation: 'import-own-wechat-history' }
   | { readonly action: 'refreshLocalHistory'; readonly sessionId: string; readonly confirmation: 'refresh-own-wechat-history' }
   | { readonly action: 'stopLocalHistory'; readonly sessionId: string; readonly confirmation: 'stop-local-history-updates' }

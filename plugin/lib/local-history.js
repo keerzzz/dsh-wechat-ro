@@ -79,20 +79,21 @@ export function createLocalHistory({ data, isIdle, intervalMs = 60000, run = run
     value.pending = (async () => {
       try {
         value.phase = 'checking'; value.error = null;
-        const next = await run(initial ? 'import' : 'refresh', operationSignal, phase => { value.phase = phase; },
+        const next = await run(initial && !value.recoveryPending ? 'import' : 'refresh', operationSignal, phase => { value.phase = phase; },
           { consumer: value.consumer, pinnedSnapshotId: value.record?.snapshot_id ?? null });
         operationSignal.throwIfAborted();
-        if (value.record && value.record.account_ref !== next.account_ref) throw new Error('LOCAL_HISTORY_ACCOUNT_CHANGED');
+        if ((value.record?.account_ref ?? value.expectedAccount) && (value.record?.account_ref ?? value.expectedAccount) !== next.account_ref) throw new Error('LOCAL_HISTORY_ACCOUNT_CHANGED');
         // A native turn may have started while the background copy was built.
         // Its first archive query will install the prepared copy before reading.
         if (background && !isIdle(id)) { value.phase = 'ready'; return; }
-        if (initial) await data.grantSnapshot(id, { root: next.snapshot_directory, allConversations: true, talkers: [], fromTs: null, toTs: null,
+        if (initial || !value.record) await data.grantSnapshot(id, { root: next.snapshot_directory, allConversations: true, talkers: [], fromTs: null, toTs: null,
           allowWechat: value.allowWechat, confirmation: 'read-decrypted-snapshot' }, operationSignal);
         else if (value.record?.snapshot_directory !== next.snapshot_directory) await data.refreshSnapshot(id, next.snapshot_directory, operationSignal);
-        value.record = next; value.checked = Date.now(); value.phase = 'ready';
+        value.record = next; value.recoveryPending = false; value.checked = Date.now(); value.phase = 'ready';
       } catch (error) {
         if (!value.enabled) return;
-        value.error = operationSignal.aborted ? 'CANCELLED' : error?.code === 'LOCAL_HISTORY_CLIENT_REQUIRED' ? error.code : 'LOCAL_HISTORY_FAILED'; value.phase = 'failed';
+        value.error = operationSignal.aborted ? 'CANCELLED' : ['LOCAL_HISTORY_CLIENT_REQUIRED', 'LOCAL_HISTORY_ACCOUNT_CHANGED'].includes(error?.code ?? error?.message) ? error.code ?? error.message : 'LOCAL_HISTORY_FAILED';
+        if (value.error === 'LOCAL_HISTORY_ACCOUNT_CHANGED') { value.enabled = false; value.recoveryPending = false; } value.phase = 'failed';
         if (initial) { value.enabled = false; throw error; }
       } finally { value.pending = null; }
     })();
@@ -100,7 +101,7 @@ export function createLocalHistory({ data, isIdle, intervalMs = 60000, run = run
   }
   function schedule(id, value) {
     clearTimeout(value.timer);
-    if (disposed || !value.enabled || !value.autoUpdate) return;
+    if (disposed || !value.enabled || !(value.autoUpdate || value.recoveryPending)) return;
     value.timer = setTimeout(async () => {
       try {
         if (isIdle(id)) await check(id, undefined, false, true);
@@ -110,7 +111,7 @@ export function createLocalHistory({ data, isIdle, intervalMs = 60000, run = run
     }, intervalMs);
     value.timer.unref?.();
   }
-  async function importHistory(id, { autoUpdate, allowWechat }, signal) {
+  async function install(id, { autoUpdate, allowWechat, expectedAccount }, signal) {
     const prior = entries.get(id);
     if (prior?.pending) throw new Error('BUSY');
     prior?.control.abort(); clearTimeout(prior?.timer);
@@ -118,10 +119,15 @@ export function createLocalHistory({ data, isIdle, intervalMs = 60000, run = run
     const leaseHash = createHash('sha256').update(process.pid + ':' + id).digest('hex');
     const consumer = [leaseHash.slice(0,8),leaseHash.slice(8,12),'4'+leaseHash.slice(13,16),'8'+leaseHash.slice(17,20),leaseHash.slice(20,32)].join('-');
     const value = { enabled: true, autoUpdate, allowWechat, phase: 'checking', record: prior?.record ?? null,
-      consumer, control: new AbortController(), timer: null, pending: null, checked: null, error: null, turns: new Map() };
+      consumer, expectedAccount, recoveryPending: Boolean(expectedAccount), control: new AbortController(), timer: null, pending: null, checked: null, error: null, turns: new Map() };
     entries.set(id, value);
-    await check(id, signal, true); schedule(id, value);
+    await check(id, signal, !expectedAccount); schedule(id, value);
     return state(id);
+  }
+  const importHistory = (id, options, signal) => install(id, options, signal);
+  async function resumeHistory(id, options, signal) {
+    if (!/^[a-f0-9]{12}$/.test(options.expectedAccount)) throw new Error('INVALID_REQUEST');
+    return install(id, options, signal);
   }
   async function beforeQuery(id, signal, turn) {
     const value = entries.get(id);
@@ -133,5 +139,5 @@ export function createLocalHistory({ data, isIdle, intervalMs = 60000, run = run
   }
   function stop(id) { const value = entries.get(id); if (value) { value.control.abort(); clearTimeout(value.timer); value.enabled = false; value.autoUpdate = false; value.phase = 'stopped'; } return state(id); }
   async function dispose() { disposed = true; for (const id of entries.keys()) stop(id); await Promise.allSettled([...entries.values()].map(value => value.pending).filter(Boolean)); }
-  return Object.freeze({ importHistory, beforeQuery, refresh: check, state, stop, dispose });
+  return Object.freeze({ importHistory, resumeHistory, beforeQuery, refresh: check, state, stop, dispose });
 }

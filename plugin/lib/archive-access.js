@@ -80,10 +80,14 @@ function grantRequest(raw, sources) {
   return { root, allConversations: raw.allConversations, talkers, fromTs, toTs, allowWechat: raw.allowWechat };
 }
 function archiveQuery(raw, scope, limits) {
-  record(raw, ['action', 'talker', 'query', 'limit', 'offset', 'fromTs', 'toTs', 'sourceKind'], ['action']);
+  record(raw, ['action', 'talker', 'query', 'limit', 'offset', 'fromTs', 'toTs', 'sourceKind', 'contentOffset'], ['action']);
   if (!['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest', 'content', 'contentStats', 'media'].includes(raw.action)) fail('invalid-request');
   const q = { action: raw.action, limit: raw.limit === undefined ? Math.min(100, limits.maxRows) : Math.min(integer(raw.limit, 1, ARCHIVE_ACCESS_LIMITS.maxRows), limits.maxRows),
     offset: raw.offset === undefined ? 0 : integer(raw.offset, 0, limits.maxOffset), fromTs: scope.fromTs, toTs: scope.toTs };
+  if (raw.contentOffset !== undefined) {
+    if (!['digest', 'content'].includes(q.action)) fail('invalid-request');
+    q.contentOffset = integer(raw.contentOffset, 0, ARCHIVE_ACCESS_LIMITS.maxDbBytes);
+  }
   if (raw.talker !== undefined) {
     q.talker = talker(raw.talker); if (!scope.allConversations && !scope.talkers.includes(q.talker)) fail('scope-forbidden');
   }

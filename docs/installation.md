@@ -1,12 +1,12 @@
 # 插件安装与 DSH 版本
 
-本指南用于安装 `dsh-wechat-ro` **0.2.2-rc.1**，包括 DSH 环境、预构建包或源码安装、启用和首次使用。Windows、macOS、Linux 的功能进度见[平台支持说明](platform-support.md)。
+本指南用于安装 `dsh-wechat-ro` **0.2.2-rc.2**，包括 DSH 环境、预构建包或源码安装、启用和首次使用。Windows、macOS、Linux 的功能进度见[平台支持说明](platform-support.md)。
 
 ## 版本与兼容环境
 
 | 项目 | 声明要求 | 当前验证环境 |
 | --- | --- | --- |
-| 微信插件 | `0.2.2-rc.1`，GitHub Release 预构建包或源码 | 未发布 npm 包 |
+| 微信插件 | `0.2.2-rc.2`，GitHub Release 预构建包或源码 | 未发布 npm 包 |
 | DSH 宿主 | `engines.dsh: >=0.2.2-rc.5 <0.3.0` | 官方 npm **0.2.2-rc.5**，Linux 验证环境 |
 | DSH SDK peers | 大多数为 `^0.2.2-rc.5`；完整列表见 [package.json](../plugin/package.json) | 由兼容宿主提供，保持宿主与 peers 一致 |
 | Node.js | `>=24.9.0` | **24.15.0** |
@@ -40,12 +40,12 @@ Web UI 默认地址为 `http://127.0.0.1:3080`。在 DSH 中配置模型提供�
 在 DSH **插件 → 添加插件 → 包名或地址** 中只填写下面一行，再点击 **安装**：
 
 ```text
-https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.1/dsh-wechat-ro-0.2.2-rc.1.tgz
+https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.2/dsh-wechat-ro-0.2.2-rc.2.tgz
 ```
 
 DSH 使用 pnpm 安装包内的运行文件和第三方依赖，再识别 `dsh.bundle.patch`。包内已有 `lib/`、界面、声明和 Python 助手，安装时无需构建脚本。
 
-如果宿主无法访问 GitHub，将 [Release](https://github.com/keerzzz/dsh-wechat-ro/releases/tag/v0.2.2-rc.1) 中的 `.tgz` 下载到运行 DSH 的电脑，在输入框填写其绝对路径，例如 `/home/YourName/Downloads/dsh-wechat-ro-0.2.2-rc.1.tgz`。安装源选项控制第三方依赖的注册表，不能替代 GitHub 文件下载。
+如果宿主无法访问 GitHub，将 [Release](https://github.com/keerzzz/dsh-wechat-ro/releases/tag/v0.2.2-rc.2) 中的 `.tgz` 下载到运行 DSH 的电脑，在输入框填写其绝对路径，例如 `/home/YourName/Downloads/dsh-wechat-ro-0.2.2-rc.2.tgz`。安装源选项控制第三方依赖的注册表，不能替代 GitHub 文件下载。
 
 ### 可选：源码目录
 
@@ -74,7 +74,7 @@ pnpm --dir plugin install --prod --frozen-lockfile --config.auto-install-peers=f
 1. 打开 DSH 侧栏的 **插件**。
 2. 选择 **添加插件**，或其菜单中的 **安装第三方插件**。
 3. 在 **包名或地址** 填入预构建包地址、`.tgz` 文件绝对路径，或源码 `plugin/` 的绝对路径，点击 **安装**。
-4. 核对安装信息为 `dsh-wechat-ro`、版本 `0.2.2-rc.1`。
+4. 核对安装信息为 `dsh-wechat-ro`、版本 `0.2.2-rc.2`。
 5. 安装完成后点击 **立即启用**；也可在 **已安装插件** 中打开该组合包并启用。
 6. 查看组合包的三个组件，确认均为 active／已激活，再打开原生会话里的 **微信** 侧栏。从源码链接切换到发布包的本机验收需要重启 Host；若组件仍显示“未运行”，重启后再次核对。
 
@@ -110,7 +110,7 @@ DSH 的组合包由 `package.json` 中的 `dsh.bundle.patch` 声明；安装将�
 在已有兼容宿主上，也可使用它的 `dsh` CLI：
 
 ```bash
-dsh plugin --profile web add https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.1/dsh-wechat-ro-0.2.2-rc.1.tgz
+dsh plugin --profile web add https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.2/dsh-wechat-ro-0.2.2-rc.2.tgz
 dsh web
 ```
 

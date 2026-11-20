@@ -16,11 +16,20 @@ export interface DailyCardsState {
     readonly version: 1;
     readonly phase: string;
     readonly error: string | null;
+    readonly errorDetail: string | null;
+    readonly progress: {
+        readonly day: string;
+        readonly stage: string;
+        readonly totalTexts: number;
+        readonly completedChunks: number;
+        readonly totalChunks: number;
+    } | null;
     readonly time: string;
     readonly nextRunAt: number;
     readonly capturedAt: string | null;
     readonly stats: readonly JsonObject[];
     readonly reports: readonly JsonObject[];
+    readonly trackedTodos: readonly JsonObject[];
     readonly pendingDays: number;
 }
 export declare function dailyCardClock(now: number, time?: string): {
@@ -48,6 +57,17 @@ export declare function createDailyCards(options: {
     now?: () => number;
 }): {
     state(id: string): DailyCardsState;
+    load(id: string): Promise<void>;
+    manageTodo(id: string, request: {
+        action: 'confirmDailyTodo';
+        day: string;
+        todoId: string;
+        assignee: string;
+    } | {
+        action: 'setDailyTodoState';
+        todoId: string;
+        completed: boolean;
+    }): Promise<DailyCardsState>;
     settings(id: string, time: string): Promise<DailyCardsState>;
     update(id: string, force?: boolean): Promise<void>;
     wait(id: string): Promise<void> | undefined;

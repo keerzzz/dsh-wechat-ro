@@ -41,6 +41,7 @@ export function createConversationWire(z) {
     talker: TALKER.optional(), query: z.string().min(1).max(1000).optional(),
     limit: z.number().int().min(1).max(500).optional(),
     offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+    contentOffset: z.number().int().min(0).max(134217728).optional(),
     fromTs: TIMESTAMP.optional(), toTs: TIMESTAMP.optional(),
   }).refine(value => value.fromTs === undefined || value.toTs === undefined || value.fromTs <= value.toTs);
   const actionSchema = z.discriminatedUnion('action', [
@@ -90,7 +91,7 @@ export function createConversationWire(z) {
     'revokeSource', 'setSharing', 'querySource', 'queryFiles', 'prepareSnapshot', 'beginLogin', 'pollLogin', 'confirmPairing', 'startChannel', 'pollTextOnce', 'resumeTextOnce', 'diagnoseUpdatesOnce', 'stopChannel', 'forgetPairing', 'discardPending',
     'reviewHistoricalContext', 'authorizeHistoricalContext', 'revokeHistoricalContext',
     'selectFirstTextModel', 'reviewFirstTextContext', 'authorizeFirstTextContext', 'revokeFirstTextContext', 'allowNewFirstText',
-    'importLocalHistory', 'refreshLocalHistory', 'stopLocalHistory', 'setDailyCardTime', 'refreshDailyCards'];
+    'importLocalHistory', 'refreshLocalHistory', 'stopLocalHistory', 'setDailyCardTime', 'refreshDailyCards', 'confirmDailyTodo', 'setDailyTodoState'];
   const taskGetStateRequestSchema = z.strictObject({ kind: z.literal('task'), sessionId: SESSION_ID.optional() });
   const workspaceInfo = z.strictObject({ id: printable(256), root: printable(4096), title: printable(160) });
   const sourceInfo = { sourceId: SOURCE_ID, title: printable(160), allowWechat: z.boolean() };
@@ -129,6 +130,8 @@ export function createConversationWire(z) {
     taskAction('setModelVision', { enabled: z.boolean(), confirmation: z.literal('analyze-selected-media-with-current-model') }),
     taskAction('setDailyCardTime', { time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/) }),
     taskAction('refreshDailyCards', {}),
+    taskAction('confirmDailyTodo', { day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), todoId: z.string().regex(/^[a-f0-9]{64}$/), assignee: printable(80) }),
+    taskAction('setDailyTodoState', { todoId: z.string().regex(/^[a-f0-9]{64}$/), completed: z.boolean() }),
     taskAction('importLocalHistory', { autoUpdate: z.boolean(), allowWechat: z.boolean(), confirmation: z.literal('import-own-wechat-history') }),
     taskAction('refreshLocalHistory', { confirmation: z.literal('refresh-own-wechat-history') }),
     taskAction('stopLocalHistory', { confirmation: z.literal('stop-local-history-updates') }),

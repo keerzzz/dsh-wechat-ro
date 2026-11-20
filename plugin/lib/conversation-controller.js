@@ -1,5 +1,6 @@
 // Owner-only native conversation coordinator. No constructor snapshot/credential/network I/O.
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import { createArchiveAccess, validateArchiveRoot } from './archive-access.js';
 import { createSessionBridge, isSessionBridgeId } from './session-bridge.js';
@@ -98,8 +99,13 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
   const maxRows = Number.isSafeInteger(config.maxRows) && config.maxRows > 0 ? Math.min(200, config.maxRows) : 100;
   const channels = new Map(), busy = new Set(), activeActions = new Map(), knownSessions = new Set(), knownTasks = new Map();
   const autoConnections = new Map(), autoOperations = new Set(), autoSetupLocks = new Set();
+  const restoredDirectories = new Map(), pendingRestores = new Map();
+  const lifetime = new AbortController(); let restoring;
+  const intentSchema = z.strictObject({ workspaceId: z.string().min(1).max(256), reply: z.boolean(),
+    pairingRef: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    history: z.strictObject({ accountRef: z.string().regex(/^[a-f0-9]{12}$/), autoUpdate: z.boolean(), allowWechat: z.boolean() }).optional() });
   const bindingSpec = Object.freeze({ name: 'wechat_task_bindings_v1', version: 1, layout: 'per-record', tables: {
-    contexts: { valueSchema: z.strictObject({ root: z.string().min(1).max(4096), sessionId: z.string().refine(isTaskSessionId), ready: z.boolean() }) },
+    contexts: { valueSchema: z.strictObject({ root: z.string().min(1).max(4096), sessionId: z.string().refine(isTaskSessionId), ready: z.boolean(), intent: intentSchema.optional() }) },
   } });
   let bindingDomain, bindings, bindingOpening;
   let domain, history, opening, archive, bridge, taskData, taskBridge, disposed = false, disposal, lastError = null, creationReservations = 0;
@@ -132,6 +138,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
       isIdle: id => !busy.has(id) && !channels.get(id)?.nativeActive && dailyCards?.state(id).phase !== 'summarizing'
         && !(ctx.get ? ctx.get('agents') : ctx.agents)?.get?.(id)?.status?.includes('running'),
       onTick: async (id, signal) => {
+        await finishRestore(id, signal);
         await dailyCards?.update(id);
         if (!signal.aborted && !busy.has(id) && !channels.get(id)?.nativeActive
           && !(ctx.get ? ctx.get('agents') : ctx.agents)?.get?.(id)?.status?.includes('running')) await taskData.indexContent?.(id, signal);
@@ -199,7 +206,8 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
   function contextDirectory(id) {
     try {
       const session = service('sessions')?.get(id);
-      if (!session || session.header?.id !== id) return null;
+      if (!session) return restoredDirectories.get(id) ?? null;
+      if (session.header?.id !== id) return null;
       const projected = service('sessionProjections')?.stateOf?.(session, 'workingDirectory');
       const root = typeof projected === 'string' ? projected : session.header.cwd;
       if (typeof root !== 'string') return null;
@@ -252,6 +260,105 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
     await bindingOpening;
     alive(signal);
   }
+  async function checkRetainedState(id, signal) {
+      const historyState = await taskData.readHistoricalState(id, signal);
+      const firstState = await taskData.readFirstTextState(id, signal);
+      const priorUnknown = [...historyState.receipts, ...firstState.receipts].filter(value => value.operation === 'terminal' && value.runOutcome === 'unknown');
+      const unusedFirstTest = priorUnknown.length === 1 && firstState.receipts.includes(priorUnknown[0])
+        && priorUnknown[0].auditOutcome === 'committed' && priorUnknown[0].modelRequestsReserved === 0 && priorUnknown[0].requestAccepted === 0;
+      if ([historyState, firstState].some(value => value.reason === 'audit-unresolved'
+        || value.reason === 'run-unresolved' && !unusedFirstTest || ['reserved', 'running'].includes(value.phase))) fail('SHARED_CONTEXT_DENIED');
+  }
+  const pairingRef = identity => createHash('sha256').update(JSON.stringify([identity.botId, identity.userId])).digest('hex');
+  async function saveIntent(id, reply, origin = id, signal, knownIdentity) {
+    await openBindings(signal);
+    const workspace = taskData.getWorkspace(id);
+    if (!workspace || contextDirectory(id)?.root !== workspace.root) fail('SESSION_NOT_READY');
+    const history = localHistory.state(id), record = channels.get(id);
+    const identity = knownIdentity ?? (record?.status.hasStoredLogin ? await record.channel.getPairingIdentity(signal) : null);
+    const intent = { workspaceId: workspace.id, reply, ...(identity ? { pairingRef: pairingRef(identity) } : {}),
+      ...(history.enabled && history.accountRef ? { history: { accountRef: history.accountRef, autoUpdate: history.autoUpdate,
+        allowWechat: taskData.getState(id).allowWechat } } : {}) };
+    alive(signal);
+    for (const [key, value] of bindings.entries()) if (value.sessionId === id && value.root === workspace.root) {
+      alive(signal); await bindings.put(key, { ...value, ready: true, intent });
+    }
+    alive(signal); await bindings.put(origin, { root: workspace.root, sessionId: id, ready: true, intent });
+  }
+  async function clearIntent(id, mode = 'all') {
+    pendingRestores.delete(id);
+    if (!bindings) await openBindings();
+    for (const [origin, value] of bindings.entries()) {
+      if (value.sessionId !== id || !value.intent) continue;
+      const next = { ...value };
+      if (mode === 'reply' && value.intent.history) next.intent = { ...value.intent, reply: false };
+      else delete next.intent;
+      await bindings.put(origin, next);
+    }
+  }
+  async function finishRestore(id, signal) {
+    const pending = pendingRestores.get(id);
+    if (!pending || localHistory.state(id).phase !== 'ready') return;
+    const { origin, binding } = pending;
+    await checkRetainedState(id, signal);
+    const workspace = taskData.getWorkspace(id);
+    if (workspace?.id !== binding.intent.workspaceId || workspace.root !== binding.root
+      || contextDirectory(origin)?.root !== binding.root || contextDirectory(id)?.root !== binding.root) fail('SESSION_NOT_READY');
+    if (binding.intent.history.allowWechat) taskData.setSharing(id, { allowWechat: true, confirmation: 'share-whole-task-context' });
+    pendingRestores.delete(id);
+    if (binding.intent.reply) await connectConversation({ contextSessionId: origin, expectedDirectory: binding.root }, signal, id, binding.intent);
+  }
+  // Only service startup calls this path. GET remains memory-only.
+  async function restore() {
+    restoring ??= (async () => {
+      if (!taskAvailable()) return;
+      await openBindings(lifetime.signal);
+      for (const [origin, binding] of bindings.entries()) {
+        if (!binding.ready || !binding.intent || lifetime.signal.aborted) continue;
+        const id = binding.sessionId;
+        if (pendingRestores.has(id) || localHistory.state(id).enabled || autoConnections.has(id) || busy.has(id)) continue;
+        const control = new AbortController(), signal = AbortSignal.any([lifetime.signal, control.signal]);
+        busy.add(id); activeActions.set(id, control);
+        try {
+          if (!service('sessions').get(origin) && origin !== id) {
+            const reader = service('sessionQuery');
+            if (typeof reader?.observeSession !== 'function') fail('SESSION_NOT_READY');
+            const observation = await reader.observeSession(origin, { signal, projectionMode: 'none' });
+            try {
+              if (observation.header?.id !== origin || observation.events.length > 20000) fail('SESSION_NOT_READY');
+              let root = observation.header.cwd;
+              for (const event of observation.events) if (event.type === 'working-directory/change') root = event.data.cwd;
+              if (root !== binding.root) fail('SESSION_NOT_READY');
+              restoredDirectories.set(origin, { root, title: 'WeChat conversation' });
+            } finally { observation[Symbol.dispose](); }
+          }
+          const stored = await taskData.findWorkspaceTasks(binding.root, signal);
+          if (!stored.some(row => row.sessionId === id && row.workspace.id === binding.intent.workspaceId)) fail('SESSION_NOT_READY');
+          await ensurePrepared(id, signal, true);
+          if (contextDirectory(id)?.root !== binding.root || contextDirectory(origin)?.root !== binding.root) fail('SESSION_NOT_READY');
+          await checkRetainedState(id, signal);
+          if (binding.intent.reply) {
+            const record = await channelFor(id, signal, true); await updateStatus(record, signal);
+            if (!record.status.hasStoredLogin || record.status.pendingRecovery || record.status.recoveryStatusUnknown
+              || !binding.intent.pairingRef || pairingRef(await record.channel.getPairingIdentity(signal)) !== binding.intent.pairingRef) fail('PAIRING_STATE_INVALID');
+          }
+          if (binding.intent.history) {
+            await taskData.grantWorkspace(id, { root: binding.root, title: taskData.getWorkspace(id).title,
+              allowWechat: binding.intent.history.allowWechat, confirmation: 'read-and-write-task-workspace' }, signal);
+            pendingRestores.set(id, { origin, binding });
+            await localHistory.resumeHistory(id, { expectedAccount: binding.intent.history.accountRef,
+              autoUpdate: binding.intent.history.autoUpdate, allowWechat: binding.intent.history.allowWechat }, signal);
+            await finishRestore(id, signal);
+          } else if (binding.intent.reply) await connectConversation({ contextSessionId: origin, expectedDirectory: binding.root }, signal, id, binding.intent);
+          await dailyCards.load(id); void dailyCards.update(id);
+        } catch (error) {
+          lastError = errorCode(error);
+          console.warn('WeChat startup restore: ' + lastError);
+        } finally { busy.delete(id); if (activeActions.get(id) === control) activeActions.delete(id); }
+      }
+    })();
+    return restoring;
+  }
   function watchAutomaticConnection(connection, record, paired) {
     const signal = AbortSignal.any([connection.controller.signal, AbortSignal.timeout(10 * 60 * 1000)]);
     const work = (async () => {
@@ -271,6 +378,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
         }
         await pause(signal, 1000);
       }
+      await saveIntent(connection.sessionId, true, connection.origin, signal);
       while (!taskData.canShare(connection.sessionId)) {
         if (!automaticScopeCurrent(connection, false) || signal.aborted) fail('CANCELLED');
         connection.phase = 'history-required';
@@ -299,7 +407,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
     connection.promise = work;
     autoOperations.add(work);
   }
-  async function connectConversation(request, signal, actionSessionId) {
+  async function connectConversation(request, signal, actionSessionId, restoreIntent) {
     taskReady();
     const origin = request.contextSessionId, directory = contextDirectory(origin);
     if (!directory || directory.root !== request.expectedDirectory) fail('SESSION_NOT_READY');
@@ -343,7 +451,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
       const reserve = async id => {
         lockTarget(id);
         if (!bindings.get(origin) && bindings.size >= 128) fail('BUSY');
-        await bindings.put(origin, { root: directory.root, sessionId: id, ready: false });
+        await bindings.put(origin, { ...(bindings.get(origin)?.sessionId === id ? bindings.get(origin) : {}), root: directory.root, sessionId: id, ready: false });
         alive(signal);
         if (contextDirectory(origin)?.root !== directory.root) fail('CANCELLED');
       };
@@ -358,16 +466,9 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
       }
       alive(signal);
       if (!taskBridge.isPrepared(target) || contextDirectory(origin)?.root !== directory.root) fail('SESSION_NOT_READY');
-      // Only initialization is persisted. Authority and automatic intent are
-      // process-local and are never resurrected by GET, reconnect or Host restart.
+      // Persist the exact Task before establishing the confirmed run intent.
       await bindings.update(origin, value => ({ ...value, ready: true }));
-      const historyState = await taskData.readHistoricalState(target, signal);
-      const firstState = await taskData.readFirstTextState(target, signal);
-      const priorUnknown = [...historyState.receipts, ...firstState.receipts].filter(value => value.operation === 'terminal' && value.runOutcome === 'unknown');
-      const unusedFirstTest = priorUnknown.length === 1 && firstState.receipts.includes(priorUnknown[0])
-        && priorUnknown[0].auditOutcome === 'committed' && priorUnknown[0].modelRequestsReserved === 0 && priorUnknown[0].requestAccepted === 0;
-      if ([historyState, firstState].some(value => value.reason === 'audit-unresolved'
-        || value.reason === 'run-unresolved' && !unusedFirstTest || ['reserved', 'running'].includes(value.phase))) fail('SHARED_CONTEXT_DENIED');
+      await checkRetainedState(target, signal);
       await stop(target);
       // Managed import already has an explicit whole-task grant. Reconnection
       // reuses that current authority without reauthorizing or dropping sources.
@@ -392,6 +493,8 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
       const connection = { sessionId: target, origin, root: directory.root, workspaceId: taskData.getWorkspace(target)?.id,
         controller: new AbortController(), contextSignal: taskData.contextSignal(target), phase: 'pairing', qr: null, error: null, promise: null };
       let qr;
+      if (restoreIntent && (!record.status.hasStoredLogin || !restoreIntent.pairingRef
+        || pairingRef(await record.channel.getPairingIdentity(signal)) !== restoreIntent.pairingRef)) fail('PAIRING_STATE_INVALID');
       if (!record.status.hasStoredLogin) {
         const render = await (dependencies.prepareQr || prepareLocalQrRenderer)();
         alive(signal);
@@ -414,10 +517,14 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
   }
   const removeDirectoryListener = typeof ctx.on === 'function' ? ctx.on('session/event', (session, event) => {
     if (event.type !== 'working-directory/change') return;
+    for (const [id, pending] of pendingRestores) if ((session.id === id || session.id === pending.origin) && event.data.cwd !== pending.binding.root) {
+      activeActions.get(id)?.abort(); localHistory.stop(id);
+      void clearIntent(id).catch(() => { lastError = 'SESSION_PERSIST_FAILED'; });
+    }
     for (const connection of autoConnections.values()) {
       if ((session.id === connection.sessionId || session.id === connection.origin) && event.data.cwd !== connection.root) {
         connection.error = 'SESSION_NOT_READY';
-        void stop(connection.sessionId).catch(() => { connection.error = 'UNAVAILABLE'; });
+        void clearIntent(connection.sessionId).then(() => stop(connection.sessionId)).catch(() => { connection.error = 'UNAVAILABLE'; });
       }
     }
   }) : null;
@@ -596,7 +703,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
   async function updateStatus(record, signal) {
     const value = await record.channel.getStatus(signal);
     record.status = { enabled: Boolean(value.enabled), phase: value.phase, hasStoredLogin: Boolean(value.hasStoredLogin),
-      pendingRecovery: Boolean(value.pendingRecovery), resumeAvailable: value.resumeAvailable === true, messagingVerified: false };
+      pendingRecovery: Boolean(value.pendingRecovery), recoveryStatusUnknown: value.recoveryStatusUnknown === true, resumeAvailable: value.resumeAvailable === true, messagingVerified: false };
     if (Object.hasOwn(value, 'delivery')) {
       const delivery = value.delivery;
       record.status.delivery = delivery && Number.isSafeInteger(delivery.accepted) && Number.isSafeInteger(delivery.total)
@@ -630,6 +737,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
     if (!identity || typeof identity.botId !== 'string' || typeof identity.userId !== 'string') fail('PAIRING_REQUIRED');
     if (!plainText) await updateStatus(record, signal);
     const accountKey = JSON.stringify([identity.botId, identity.userId]);
+    if (task && !textOnly && !historyPermit && !automaticConnection && !resumeOnce) await saveIntent(id, true, id, signal, identity);
     if (POLLER_OWNERS.has(accountKey) || POLLER_OWNERS.size >= 128) fail('BUSY');
     alive(signal);
     const loop = { controller: new AbortController(), accountKey, token: Symbol('wechat-poller'), textOnly, historyPermit, progress, automaticConnection, resumeOnce,
@@ -733,6 +841,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
     let control;
     if (emergency) {
       activeActions.get(id)?.abort();
+      if (task) await stop(id);
     } else {
       control = new AbortController();
       activeActions.set(id, control);
@@ -757,9 +866,11 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
             if (!directory) fail('SESSION_NOT_READY');
             await taskData.grantWorkspace(id, { ...directory, allowWechat: request.allowWechat, confirmation: 'read-and-write-task-workspace' }, signal);
           }
+          await clearIntent(id);
           result = await localHistory.importHistory(id, request, signal);
           alive(signal);
           if (request.allowWechat) taskData.setSharing(id, { allowWechat: true, confirmation: 'share-whole-task-context' });
+          await saveIntent(id, Boolean(reconnect && request.allowWechat), origin, signal);
           if (reconnect && request.allowWechat) await connectConversation({ contextSessionId: origin,
             expectedDirectory: taskData.getWorkspace(id).root, confirmation: 'connect-own-wechat-auto-reply' }, signal, id);
           break;
@@ -767,7 +878,9 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
         case 'refreshLocalHistory':
           if (service('agents')?.get?.(id)?.status === 'running') fail('BUSY');
           await localHistory.refresh(id, signal); result = localHistory.state(id); break;
-        case 'stopLocalHistory': dailyCards?.stop(id); result = localHistory.stop(id); break;
+        case 'stopLocalHistory': await clearIntent(id); await stop(id); dailyCards?.stop(id); result = localHistory.stop(id); break;
+        case 'confirmDailyTodo':
+        case 'setDailyTodoState': result = await dailyCards.manageTodo(id, request); break;
         case 'setModelVision': result = await taskData.setModelVision(id, request.enabled); break;
         case 'setDailyCardTime': result = await dailyCards.settings(id, request.time); break;
         case 'refreshDailyCards': {
@@ -829,6 +942,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
           await ensurePrepared(id, signal, true);
           await stop(id);
           alive(signal);
+          await clearIntent(id);
           if (request.action === 'grantWorkspace') result = await taskData.grantWorkspace(id, request.workspace, signal);
           else if (request.action === 'grantDirectory') {
             const { root, title, sourceId, allowWechat, confirmation } = request;
@@ -837,6 +951,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
           break;
         }
         case 'grantSnapshot': {
+          if (task) await clearIntent(id);
           const { root, allConversations, talkers, fromTs, toTs, allowWechat, confirmation } = request;
           if (task) {
             await ensurePrepared(id, signal, true);
@@ -861,6 +976,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
           break;
         }
         case 'revokeSource': {
+          await clearIntent(id);
           if (request.sourceId === 'archive' || request.sourceId === '*') { dailyCards?.stop(id); localHistory?.stop(id); }
           taskReady();
           const stopping = stop(id);
@@ -930,6 +1046,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
           break;
         }
         case 'setSharing': {
+          if (!request.allowWechat) await clearIntent(id);
           if (request.firstTextConsentId !== undefined) {
             requireHistoricalTask(id, signal);
             if (channels.get(id)?.loop) fail('BUSY');
@@ -1033,12 +1150,14 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
           break;
         }
         case 'stopChannel': {
+          if (task) await clearIntent(id, 'reply');
           const stopping = stop(id);
           if (task && typeof taskData?.stopTextContexts === 'function') result = await taskData.stopTextContexts(id);
           await stopping;
           break;
         }
         case 'forgetPairing': {
+          if (task) await clearIntent(id, 'reply');
           await ensurePrepared(id, signal, task); await stop(id);
           const record = await channelFor(id, signal, task);
           await record.channel.forget('forget-local-credentials', signal);
@@ -1074,7 +1193,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
   }
   async function dispose() {
     if (disposal) return disposal;
-    disposed = true;
+    disposed = true; lifetime.abort();
     const historyDisposal = localHistory?.dispose();
     const cardsDisposal = dailyCards?.dispose();
     if (typeof removeDirectoryListener === 'function') removeDirectoryListener();
@@ -1082,7 +1201,7 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
     for (const connection of autoConnections.values()) connection.controller.abort();
     for (const record of channels.values()) record.loop?.controller.abort();
     disposal = (async () => {
-      await Promise.allSettled([historyDisposal, cardsDisposal, ...autoOperations, ...[...channels.values()].map(record => record.loop?.promise).filter(Boolean)]);
+      await Promise.allSettled([restoring, historyDisposal, cardsDisposal, ...autoOperations, ...[...channels.values()].map(record => record.loop?.promise).filter(Boolean)]);
       for (const record of channels.values()) record.channel.dispose();
       const results = await Promise.allSettled([bridge, taskBridge, archive, taskData].filter(Boolean).map(value => Promise.resolve().then(() => value.dispose())));
       if (opening) await opening.catch(() => {});
@@ -1093,14 +1212,17 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
     })();
     return disposal;
   }
-  return Object.freeze({ getState, action, dispose });
+  return Object.freeze({ getState, action, restore, dispose });
 }
 
 export class WechatConversationService extends TypertRemoteService {
   constructor(ctx, config) {
     super(ctx, CONVERSATION_NAMESPACE);
     this.runtime = createConversationRuntime(ctx, config);
-    ctx.effect(() => () => this.runtime.dispose());
+    ctx.effect(() => {
+      void this.runtime.restore().catch(() => { console.warn('WeChat startup restore: UNAVAILABLE'); });
+      return () => this.runtime.dispose();
+    });
   }
   getConversationState(request, signal) {
     requireConversationOwner(this.ctx.invocation);

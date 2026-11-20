@@ -35,6 +35,11 @@ export declare function createLocalHistory(options: {
         autoUpdate: boolean;
         allowWechat: boolean;
     }, signal?: AbortSignal): Promise<LocalHistoryState>;
+    resumeHistory(id: string, options: {
+        autoUpdate: boolean;
+        allowWechat: boolean;
+        expectedAccount: string;
+    }, signal?: AbortSignal): Promise<LocalHistoryState>;
     beforeQuery(id: string, signal?: AbortSignal, turn?: number | null): Promise<void>;
     refresh(id: string, signal?: AbortSignal, initial?: boolean): Promise<void>;
     state(id: string): LocalHistoryState;

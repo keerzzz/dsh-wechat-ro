@@ -357,7 +357,22 @@
     "historyAnalysisFailed": "无法分析所选媒体。请确认文件已下载，本地处理环境和媒体密钥可用。",
     "historyThumbnail": "来源：缩略图",
     "historyBatchHint": "开启历史自动更新后，空闲时分批在本机转写、OCR 和索引。",
-    "historyBatchProgress": "本地批量索引：已处理 {processed} 条，跳过 {skipped} 条不可用记录。"
+    "historyBatchProgress": "本地批量索引：已处理 {processed} 条，跳过 {skipped} 条不可用记录。",
+    "dailyMe": "我",
+    "dailyConfirmMine": "确认为我的待办",
+    "dailyConfirmOwner": "确认负责人",
+    "dailyOwnerName": "负责人姓名",
+    "dailyConfirmedOwner": "已确认负责人：{name}",
+    "dailyMarkDone": "标记完成",
+    "dailyReopen": "重新打开",
+    "dailyTrackedTitle": "已确认待办 · 跨日跟踪",
+    "dailyTrackedEmpty": "在待办线索中确认归属后，事项会保留在这里。",
+    "dailyCompletedCount": "已完成 {count} 项",
+    "dailyFromDay": "来源日期：{day}",
+    "dailyReadingProgress": "正在读取全天 {total} 条文字…",
+    "dailyMergingProgress": "正在合并分批摘要…",
+    "dailyChunkProgress": "已完成 {done}/{chunks} 批 · 全天 {total} 条文字",
+    "localHistoryAccountChanged": "当前微信账号已变化，自动恢复已停止。确认账号后重新导入。"
   },
   "tabs": {
     "overview": "概览",

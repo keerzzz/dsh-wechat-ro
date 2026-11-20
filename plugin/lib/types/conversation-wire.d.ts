@@ -27,6 +27,7 @@ export interface ArchiveQuery {
     readonly query?: string;
     readonly limit?: number;
     readonly offset?: number;
+    readonly contentOffset?: number;
     readonly fromTs?: number;
     readonly toTs?: number;
 }
@@ -143,6 +144,19 @@ export type TaskConversationAction = {
 } | {
     readonly action: 'refreshDailyCards';
     readonly sessionId: string;
+} | {
+    readonly kind: 'task';
+    readonly sessionId: string;
+    readonly action: 'confirmDailyTodo';
+    readonly day: string;
+    readonly todoId: string;
+    readonly assignee: string;
+} | {
+    readonly kind: 'task';
+    readonly sessionId: string;
+    readonly action: 'setDailyTodoState';
+    readonly todoId: string;
+    readonly completed: boolean;
 } | {
     readonly action: 'importLocalHistory';
     readonly sessionId: string;

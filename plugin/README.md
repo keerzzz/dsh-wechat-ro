@@ -11,7 +11,7 @@ WeChat history search and daily insight cards for DeepSeek Harness, targeting Wi
 在 DSH **插件 → 添加插件 → 包名或地址** 中只填写：
 
 ```text
-https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.1/dsh-wechat-ro-0.2.2-rc.1.tgz
+https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.2/dsh-wechat-ro-0.2.2-rc.2.tgz
 ```
 
 点击 **安装 → 立即启用**。也可下载 `.tgz` 后填写宿主上的文件绝对路径。源码用户在终端安装 `plugin/` 的依赖，再填写该目录的绝对路径。`git clone`、`cd`、`pnpm` 命令用于终端；输入框只接受一个地址。
@@ -24,7 +24,7 @@ https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.1/dsh-wecha
 - [架构与数据口径](https://github.com/keerzzz/dsh-wechat-ro/blob/main/docs/architecture.md)
 - [原生接口说明](https://github.com/keerzzz/dsh-wechat-ro/blob/main/docs/native-conversation-contract.md)
 
-当前插件版本为 **0.2.2-rc.1**，使用官方 **DSH `>=0.2.2-rc.5 <0.3.0`** 与 Node.js **`>=24.9.0`**。安装、版本和启用见[安装指南](https://github.com/keerzzz/dsh-wechat-ro/blob/main/docs/installation.md)，升级见[迁移说明](https://github.com/keerzzz/dsh-wechat-ro/blob/main/docs/upgrading-0.2.1.md)。Linux 微信 4.1.13.26 的采集已完成本机验证。
+当前插件版本为 **0.2.2-rc.2**，使用官方 **DSH `>=0.2.2-rc.5 <0.3.0`** 与 Node.js **`>=24.9.0`**。安装、版本和启用见[安装指南](https://github.com/keerzzz/dsh-wechat-ro/blob/main/docs/installation.md)，升级见[迁移说明](https://github.com/keerzzz/dsh-wechat-ro/blob/main/docs/upgrading-0.2.1.md)。Linux 微信 4.1.13.26 的采集已完成本机验证。
 
 默认 [cordis.patch.yml](cordis.patch.yml) 插入两项关闭快照读取的旧查询服务和一个受控微信任务预设。加载插件后，通过微信侧栏完成连接及历史导入。`sourceRoot` 留空时，原生协调器使用当前宿主用户的 `Documents/xwechat_files` 作为受保护的原库路径；高级手动配置可指定其他原库位置。
 
@@ -52,6 +52,6 @@ node scripts/run-tests.mjs --only test-daily-cards
 
 ## 当前进度
 
-每日摘要覆盖有界，待办线索尚无负责人和完成状态管理。Host 重启需重新连接与导入。朋友圈及小程序聊天/收藏卡片已接入，小程序内部业务数据需单独导出或 API，其他微信构建和平台尚待适配。
+每日摘要分页续读全天文字、分批合并，显示进度与覆盖数量；失败或重启后可核验输入并续跑已保存分块。待办线索由本人确认归属，可完成、重开及跨日期跟踪。成功连接或导入后保存运行意图；Host 重启核验原 Task、工作区、账号与配对后恢复。首次升级需成功连接或导入一次。朋友圈及小程序聊天/收藏卡片已接入，小程序内部业务数据需单独导出或 API，其他微信构建和平台尚待适配。
 
 MIT 许可证见 [LICENSE](LICENSE)，上游来源与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

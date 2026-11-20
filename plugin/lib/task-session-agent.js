@@ -115,6 +115,7 @@ const archiveParameters = { type: 'object', additionalProperties: false, require
   sourceKind: { type: 'string', enum: ['messages', 'moments', 'favorites', 'miniprogram', 'voice', 'image', 'video'], description: 'Filter search or content by source. Omit for search across available sources.' },
   talker: { type: 'string', description: 'Exact authorized ID returned by contacts, required for messages. Do not substitute a display name.' }, query: { type: 'string', description: 'Name fragment for contacts; literal text for search.' },
   limit: { type: 'integer', minimum: 1, maximum: 100 }, offset: { type: 'integer', minimum: 0, maximum: 10000 },
+  contentOffset: { type: 'integer', minimum: 0, maximum: 67108864, description: 'For content only: Unicode character offset into long title/body; use 1024-character increments when contentTruncated is true.' },
   fromTs: { type: 'integer', minimum: 0, description: 'Inclusive start in Unix seconds for message queries; use status.clock for relative dates.' }, toTs: { type: 'integer', minimum: 0, description: 'Inclusive end in Unix seconds for message queries.' },
 } };
 function actionRequest(args, actions) {
