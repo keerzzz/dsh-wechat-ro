@@ -145,8 +145,13 @@ eq('task preset is exactly the bundled declaration', taskPreset[0]?.insert, [row
 eq('task preset reuses native presentation and deliverables', taskPreset[0]?.insert?.[0]?.config?.plugins?.map(row => row.name),
   ['@deepseek-ai/dsh-agent-tool-presentation', '@deepseek-ai/dsh-tool-present', 'dsh-wechat-ro/task-session-agent'])
 eq('task preset freezes the native present file ceiling', taskPreset[0]?.insert?.[0]?.config?.plugins?.[1]?.config?.maxFiles, 4)
+// These optional peers must stay on the same SDK line as the required ones, so a
+// version bump cannot leave the task preset pinned to an SDK the rest left behind.
+const sdkLine = pkg.peerDependencies?.['@deepseek-ai/dsh-agent']
+check('required SDK peers declare one line', typeof sdkLine === 'string' && /^\^\d+\.\d+\.\d+/.test(sdkLine), sdkLine)
 for (const name of ['@deepseek-ai/dsh-working-directory', '@deepseek-ai/dsh-workspace', '@deepseek-ai/dsh-session-query', '@deepseek-ai/dsh-tool-present']) {
-  check('task SDK dependency remains optional: ' + name, pkg.peerDependencies?.[name] === '^0.2.1-rc.2' && pkg.peerDependenciesMeta?.[name]?.optional === true)
+  check('task SDK dependency remains optional: ' + name, pkg.peerDependencies?.[name] === sdkLine && pkg.peerDependenciesMeta?.[name]?.optional === true,
+    'declared ' + pkg.peerDependencies?.[name] + ', expected ' + sdkLine)
 }
 const taskAccess = await import(join(ROOT, 'lib/task-access.js'))
 const taskPolicy = await import(join(ROOT, 'lib/task-session-agent.js'))

@@ -150,7 +150,8 @@
     "lib/local-history.js",
     "lib/daily-cards.js",
     "lib/content-analysis.js",
-    "lib/image-decode.js"
+    "lib/image-decode.js",
+    "lib/summary-model.js"
   ],
   "engines": {
     "dsh": ">=0.2.2-rc.5 <0.3.0",

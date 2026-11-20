@@ -12,6 +12,7 @@ import { createWeixinChannel, WeixinChannelError } from './weixin-channel.js';
 import { prepareLocalQrRenderer } from './qr-renderer.js';
 import { createLocalHistory } from './local-history.js';
 import { createDailyCards } from './daily-cards.js';
+import { summarizeWithModel, summaryRoutes } from './summary-model.js';
 import { CONVERSATION_NAMESPACE, CONVERSATION_METHOD_NAMES, CONVERSATION_ERROR_CODES,
   stateSchema, actionResultSchema, TASK_WIRE, conversationRequestSchemaFor } from './conversation-wire.js';
 
@@ -143,21 +144,13 @@ export function createConversationRuntime(ctx, config = {}, dependencies = {}) {
         const agent = service('agents')?.get(id);
         const selected = service('sessionProjections')?.stateOf?.(agent.session, 'modelSelection')?.pending || agent.options;
         const control = AbortSignal.any([signal, taskData.contextSignal(id), AbortSignal.timeout(120000)]);
-        let text = '', complete = false;
         // A report has its own input and no tools. It cannot be coalesced with
         // a native/phone turn, and it does not append report prompts to that chat.
-        for await (const chunk of service('llm').stream({ provider: selected.provider, model: selected.model,
-          ...(selected.reasoningEffort ? { reasoningEffort: selected.reasoningEffort } : {}),
-          messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }], tools: [], maxTokens: 6000, signal: control })) {
-          control.throwIfAborted();
-          if (chunk.type === 'text-delta') text += chunk.text;
-          if (Buffer.byteLength(text) > 65536) throw Object.assign(new Error('SUMMARY_BYTE_BUDGET'), { code: 'SUMMARY_BYTE_BUDGET' });
-          if (chunk.type === 'finish') {
-            complete = chunk.reason.kind === 'stop';
-            if (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted') throw Object.assign(new Error('SUMMARY_MODEL_FAILED'), { code: chunk.reason.failure?.code || 'SUMMARY_MODEL_FAILED' });
-          }
-        }
-        if (!complete || !taskData.canShare(id)) throw Object.assign(new Error('SUMMARY_NOT_COMPLETED'), { code: 'SUMMARY_NOT_COMPLETED' });
+        // The deployment default is the fallback route, never a silent model swap:
+        // a failure on both routes surfaces with its own code instead of "not completed".
+        const fallback = service('agentDefaultModel')?.currentSelection?.();
+        const text = await summarizeWithModel({ llm: service('llm'), routes: summaryRoutes(selected, fallback), prompt, signal: control });
+        if (!taskData.canShare(id)) throw Object.assign(new Error('SUMMARY_NOT_COMPLETED'), { code: 'SUMMARY_NOT_COMPLETED' });
         return text;
       } });
   } catch (error) { taskInitializationError = errorCode(error); }

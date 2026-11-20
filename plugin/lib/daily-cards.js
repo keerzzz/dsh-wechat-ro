@@ -37,7 +37,7 @@ export function createDailyCards({ storage, query, summarize, isIdle, source, no
   }
   function state(id) {
     const e = entries.get(id), clock = dailyCardClock(now(), e?.record?.time);
-    return { version: 1, phase: e?.phase ?? 'waiting', error: e?.error ?? null, time: e?.record?.time ?? '08:00', nextRunAt: clock.nextRunAt,
+    return { version: 1, phase: e?.phase ?? 'waiting', error: e?.error ?? null, errorDetail: e?.errorDetail ?? null, time: e?.record?.time ?? '08:00', nextRunAt: clock.nextRunAt,
       capturedAt: e?.capturedAt ?? null, stats: e?.stats ?? [], reports: e?.record?.reports ?? [], pendingDays: e?.record ? Math.max(0, Math.floor((dayStart(clock.dueDay) - dayStart(e.record.nextDay)) / 86400) + 1) : 0 };
   }
   async function settings(id, time) {
@@ -51,12 +51,12 @@ export function createDailyCards({ storage, query, summarize, isIdle, source, no
     if (disposed || !live?.enabled || live.phase !== 'ready' || !isIdle(id)) return;
     let e = entries.get(id);
     if (e?.pending) return e.pending;
-    e ??= { phase: 'waiting', error: null, stats: [], record: null, capturedAt: null, pending: null, control: new AbortController() };
+    e ??= { phase: 'waiting', error: null, errorDetail: null, stats: [], record: null, capturedAt: null, pending: null, control: new AbortController() };
     entries.set(id, e);
     const signal = e.control.signal;
     e.pending = (async () => {
       try {
-        e.phase = 'updating'; e.error = null;
+        e.phase = 'updating'; e.error = null; e.errorDetail = null;
         await open(); signal.throwIfAborted();
         const clock = dailyCardClock(now(), e.record?.time ?? table.get(id)?.time);
         e.record ??= table.get(id) ?? { time: '08:00', account: live.accountRef, nextDay: clock.dueDay, reports: [] };
@@ -103,7 +103,11 @@ export function createDailyCards({ storage, query, summarize, isIdle, source, no
       } catch (error) {
         e.phase = signal.aborted ? 'waiting' : 'failed';
         e.error = signal.aborted ? null : error?.code ?? (error?.message === 'UNKNOWN_CITATION' || error instanceof z.ZodError || error instanceof SyntaxError ? 'INVALID_SUMMARY' : 'UPDATE_FAILED');
-        if (e.error) console.warn('WeChat daily cards: ' + e.error + ' (' + error.name + (/^[A-Z_]{1,80}$/.test(error.message || '') ? ': ' + error.message : '') + ')');
+        // The provider-side reason stays separate from the fixed card error so a
+        // rejected route is distinguishable from a truncated or revoked one.
+        const cause = error?.cause;
+        e.errorDetail = signal.aborted || typeof cause !== 'string' || !/^[A-Z_]{1,64}$/.test(cause) ? null : cause;
+        if (e.error) console.warn('WeChat daily cards: ' + e.error + (e.errorDetail ? '/' + e.errorDetail : '') + ' (' + error.name + (/^[A-Z_]{1,80}$/.test(error.message || '') ? ': ' + error.message : '') + ')');
       } finally { e.pending = null; }
     })();
     return e.pending;
