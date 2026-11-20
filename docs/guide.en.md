@@ -16,15 +16,15 @@ In the implemented environment, it connects a personal WeChat bot to a native DS
 
 ## Installation and DSH versions
 
-Plugin **0.2.2-rc.1** supports the official **DSH `>=0.2.2-rc.5 <0.3.0`** release and **Node.js `>=24.9.0`**. Automatic replies use native DSH conversations; the previous sealed history and first-text workflows have been retired. Installation requires no DSH source changes. See the [installation guide](installation.md) and [upgrade notes](upgrading-0.2.1.md).
+Plugin **0.2.2-rc.2** supports the official **DSH `>=0.2.2-rc.5 <0.3.0`** release and **Node.js `>=24.9.0`**. Automatic replies use native DSH conversations; the previous sealed history and first-text workflows have been retired. Installation requires no DSH source changes. See the [installation guide](installation.md) and [upgrade notes](upgrading-0.2.1.md).
 
 Open **Plugins → Add plugin** and enter this single address:
 
 ```text
-https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.1/dsh-wechat-ro-0.2.2-rc.1.tgz
+https://github.com/keerzzz/dsh-wechat-ro/releases/download/v0.2.2-rc.2/dsh-wechat-ro-0.2.2-rc.2.tgz
 ```
 
-Select **Install → Enable now**. If the host cannot reach GitHub, download the `.tgz` from the [Release](https://github.com/keerzzz/dsh-wechat-ro/releases/tag/v0.2.2-rc.1), copy it to the host and enter its absolute file path instead. Source installation commands in the [installation guide](installation.md) run in a terminal; the plugin dialog accepts one package address or the absolute path to `plugin/`, whose directory contains the bundle manifest.
+Select **Install → Enable now**. If the host cannot reach GitHub, download the `.tgz` from the [Release](https://github.com/keerzzz/dsh-wechat-ro/releases/tag/v0.2.2-rc.2), copy it to the host and enter its absolute file path instead. Source installation commands in the [installation guide](installation.md) run in a terminal; the plugin dialog accepts one package address or the absolute path to `plugin/`, whose directory contains the bundle manifest.
 
 Select a conversation directory and model, connect from the WeChat sidebar, then import history.
 
@@ -58,7 +58,7 @@ The stdio service provides status, contacts, sessions, messages, search, timelin
 
 ## Current progress
 
-Daily summaries use bounded excerpts and display their coverage. To-do cards identify leads; ownership and completion tracking are pending. A real next-day scheduled run still needs on-device validation. Reconnect and reimport after host restarts.
+Daily summaries page through the full day, continue long text and merge validated batches. Completed batches persist and resume after input verification. Confirm a to-do lead as your task or name an assignee, then mark it complete or reopen it; confirmed tasks remain across report dates. Successful connection/import saves run intent. Host startup verifies the same Task, workspace, account and pairing before restoring updates and replies. Full-day model summaries and restart recovery have passed Linux on-device validation. Repeated scheduled runs still need another actual day boundary.
 
 Moments and internal mini-program data are not integrated. Dedicated parsing of mini-program chat cards also needs validation. Public and service account tabs classify imported chat records.
 

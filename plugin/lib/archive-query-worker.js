@@ -352,7 +352,7 @@ function messages(catalog, scope, q, budget) {
       const id = bounded(qi(c.id), 128), type = c.type ? bounded(qi(c.type), 32) : 'NULL';
       const sender = c.sender ? 'CASE WHEN typeof(' + qi(c.sender) + ")!='blob' AND length(CAST(" + qi(c.sender) + ' AS BLOB)) <= 128 THEN CAST(' + qi(c.sender) + ' AS TEXT) END' : 'NULL';
       const selectedRows = selected(db, 'SELECT ' + rowRef + ' AS rowRef, ' + id + ' AS id, _archive_epoch(' + qi(c.time) + ') AS ts, ' + type + ' AS type, ' + sender + ' AS senderId, '
-        + bounded(content, 1024) + ' AS content, length(CAST(' + content + ' AS TEXT)) > 1024 AS cut FROM ' + qi(table.name)
+        + 'substr(CAST(' + content + ' AS TEXT),' + ((q.contentOffset ?? 0) + 1) + ',1024) AS content, length(CAST(' + content + ' AS TEXT)) > ' + ((q.contentOffset ?? 0) + 1024) + ' AS cut FROM ' + qi(table.name)
         + ' WHERE ' + clauses.map(c => '(' + c + ')').join(' AND ') + ' ORDER BY ts DESC, id COLLATE BINARY, rowRef COLLATE BINARY LIMIT ?', [...params, q.offset + q.limit + 1], budget);
       const senderIds = [...new Set(selectedRows.filter(row => row.senderId !== null && Number.isSafeInteger(Number(row.senderId))).map(row => Number(row.senderId)))];
       const nameTables = senderIds.length ? tables(db, catalog.limits, ['Name2Id']).filter(item => item.regular) : [];
@@ -391,7 +391,8 @@ function contentRows(catalog, scope, q, budget) {
     }
     const where = clauses.map(c => '(' + c + ')').join(' AND ');
     if (q.action === 'contentStats') return selected(db, 'SELECT kind AS sourceKind,count(*) AS total,max(ts) AS latestTs FROM records WHERE ' + where + ' GROUP BY kind ORDER BY kind', params, budget);
-    return selected(db, 'SELECT record_ref,kind,talker,ts,substr(title,1,256) AS title,substr(content,1,1024) AS content,length(content)>1024 AS cut,substr(url,1,2048) AS url,metadata FROM records WHERE '
+    const contentOffset = q.contentOffset ?? 0;
+    return selected(db, 'SELECT record_ref,kind,talker,ts,substr(title,' + (contentOffset + 1) + ',1024) AS title,substr(content,' + (contentOffset + 1) + ',1024) AS content,(length(content)>' + (contentOffset + 1024) + ' OR length(title)>' + (contentOffset + 1024) + ') AS cut,substr(url,1,2048) AS url,metadata FROM records WHERE '
       + where + ' ORDER BY ts DESC,record_ref LIMIT ? OFFSET ?', [...params, q.limit + 1, q.offset], budget)
       .map(row => ({ sourceKind: row.kind, talker: row.talker, ts: row.ts,
         localTime: row.ts === null ? null : localTime.format(new Date(row.ts * 1000)).replace(' ', 'T').replace(' GMT', ''),

@@ -59,7 +59,7 @@ const fileRequestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('edit'), reference: z.string().uuid(), oldString: z.string().min(1).refine(value => Buffer.byteLength(value) <= 65536), newString: contentSchema, replaceAll: z.boolean().default(false) }).strict(),
 ]);
 const archiveQuerySchema = z.object({ action: z.enum(['status', 'contacts', 'sessions', 'messages', 'search', 'stats', 'digest', 'content', 'contentStats', 'media']), sourceKind: z.enum(['messages', 'moments', 'favorites', 'miniprogram', 'voice', 'image', 'video']).optional(), talker: z.string().optional(), query: z.string().optional(),
-  limit: z.number().int().min(1).max(100).optional(), offset: z.number().int().min(0).max(10000).optional(), fromTs: z.number().int().nonnegative().optional(), toTs: z.number().int().nonnegative().optional() }).strict();
+  limit: z.number().int().min(1).max(100).optional(), offset: z.number().int().min(0).max(10000).optional(), contentOffset: z.number().int().min(0).max(134217728).optional(), fromTs: z.number().int().nonnegative().optional(), toTs: z.number().int().nonnegative().optional() }).strict();
 const sourceQuerySchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('status') }).strict(),
   z.object({ action: z.literal('archive'), query: archiveQuerySchema }).strict(),

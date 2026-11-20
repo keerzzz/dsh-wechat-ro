@@ -1,6 +1,8 @@
 // Production coordinator with explicit synthetic capabilities. No real account,
 // profile, files, model or network. Real TaskAccess/SDK coverage lives in test-task-context.
 import test, { after } from 'node:test';
+import { Context } from '@deepseek-ai/cordis';
+import { WechatRoService } from '../lib/controller.js';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createConversationRuntime, WechatConversationService } from '../lib/conversation-controller.js';
@@ -23,7 +25,7 @@ function fixture(options = {}, shared = { sessions: new Map([[ORIGIN, { id: ORIG
   const count = { opens: 0, writes: 0, finds: 0, creates: 0, ensures: 0, grants: 0, authorizations: 0, qr: 0, scanChecks: 0, saves: 0, polls: 0, models: 0, sends: 0, media: 0, historyHelpers: 0, historyImports: 0 };
   const scan = deferred(), replyGate = deferred(), modelStarted = deferred(), qrGate = deferred(), qrEntered = deferred();
   const listeners = new Set(), controls = new Map(), grants = new Map();
-  let disposed = false, channelConfig, recovery = false, historyRestored = false;
+  let disposed = false, channelConfig, recovery = options.pendingRecovery === true, historyRestored = false;
   function stored(id) { const value = shared.tasks.get(id); if (!value) throw Object.assign(new Error('No synthetic Task'), { code: 'not-owned' }); return value; }
   function control(id) { if (!controls.has(id)) controls.set(id, new AbortController()); return controls.get(id); }
   function state(id) {
@@ -76,6 +78,11 @@ function fixture(options = {}, shared = { sessions: new Map([[ORIGIN, { id: ORIG
   const workspace = { id: 'registry-rebuilt-id', path: ROOT, title: 'Synthetic workspace', sessionIds: options.ambiguous ? [TASK, OTHER] : [] };
   const ctx = { sessions: { get: id => shared.sessions.get(id) }, agents: { get: id => agents.get(id) }, agentPresets: {}, sandboxPolicy: {}, fs: {},
     workspaceRegistry: { list: () => [workspace] }, on(name, callback) { assert.equal(name, 'session/event'); listeners.add(callback); return () => listeners.delete(callback); } };
+  if (options.coldOrigin) {
+    shared.sessions.delete(ORIGIN);
+    ctx.sessionQuery = { async observeSession(id, options) { assert.equal(id, ORIGIN); options.signal.throwIfAborted();
+      return { header: { id: ORIGIN, cwd: ROOT }, events: [], [Symbol.dispose]() {} }; } };
+  }
   const runtime = createConversationRuntime(ctx, { sourceRoot: '/synthetic/forbidden-account' }, {
     createArchiveAccess: () => ({ dispose: async () => {} }), createSessionBridge: () => ({ isPrepared: () => false, dispose: async () => {} }),
     createTaskAccess: () => data, createTaskSessionBridge: () => bridge, credentials: {}, fetcher: () => { throw new Error('No network is allowed'); },
@@ -83,14 +90,14 @@ function fixture(options = {}, shared = { sessions: new Map([[ORIGIN, { id: ORIG
       count.historyHelpers++;
       if (command === 'import') count.historyImports++;
       if (options.importFailure) throw Object.assign(new Error('Synthetic import failure'), { code: options.importFailure });
-      return { account_ref: 'a'.repeat(12), snapshot_directory: '/synthetic/prepared-history', captured_at:'2026-11-19T00:00:00+08:00',snapshot_id:'a'.repeat(32),changed:true,database_count:3 };
+      return { account_ref: options.changedAccount ? 'b'.repeat(12) : 'a'.repeat(12), snapshot_directory: '/synthetic/prepared-history', captured_at:'2026-11-19T00:00:00+08:00',snapshot_id:'a'.repeat(32),changed:true,database_count:3 };
     },
     createStateStore: () => ({}), createApi: () => ({}), createMediaApi: () => ({}),
     storageDomain: { async open(spec) {
-      count.opens++; assert.equal(spec.name, 'wechat_task_bindings_v1');
+      count.opens++;
       if (!shared.domains.has(spec.name)) shared.domains.set(spec.name, new Map());
-      const rows = shared.domains.get(spec.name), schema = spec.tables.contexts.valueSchema;
-      return { table(name) { assert.equal(name, 'contexts'); return { get size() { return rows.size; }, get: id => rows.get(id),
+      const rows = shared.domains.get(spec.name), tableName = spec.name === 'wechat_task_bindings_v1' ? 'contexts' : 'tasks', schema = spec.tables[tableName].valueSchema;
+      return { table(name) { assert.equal(name, tableName); return { get size() { return rows.size; }, get: id => rows.get(id), entries: () => rows.entries(),
         async put(id, value) { count.writes++; rows.set(id, schema.parse(value)); }, async update(id, fn) { count.writes++; rows.set(id, schema.parse(fn(rows.get(id)))); } }; }, async close() {} };
     } },
     prepareQr: async () => () => ({ payloadKind: 'ilink-login', rows: Array(21).fill('0'.repeat(21)) }),
@@ -106,7 +113,7 @@ function fixture(options = {}, shared = { sessions: new Map([[ORIGIN, { id: ORIG
         },
         async pollLoginForOwner(_, signal) { count.scanChecks++; await Promise.race([scan.promise, aborted(signal)]); signal.throwIfAborted(); return { status: 'confirmed', expectedOwnerId: 'synthetic-owner' }; },
         async confirmPairingForOwner(owner, signal) { signal.throwIfAborted(); assert.equal(owner, 'synthetic-owner'); count.saves++; shared.paired = true; return { paired: true }; },
-        async getPairingIdentity(signal) { signal.throwIfAborted(); assert.equal(shared.paired, true); return { botId: 'synthetic-bot', userId: 'synthetic-owner' }; },
+        async getPairingIdentity(signal) { signal.throwIfAborted(); assert.equal(shared.paired, true); return { botId: options.changedPairing ? 'another-bot' : 'synthetic-bot', userId: 'synthetic-owner' }; },
         async pollTextOnce(signal) {
           count.polls++; const text = await config.reply('Synthetic owner text', { messageId: 'synthetic-message' }, signal);
           assert.equal(text, 'Synthetic complete reply'); assert.equal(config.beforeSend(), true); count.sends++; config.onTextAccepted();
@@ -134,9 +141,9 @@ const taskState = f => f.runtime.getState({ kind: 'task', sessionId: TASK });
 after(async () => { for (const runtime of pending) await runtime.dispose(); });
 
 test('strict explicit scope; constructor and GET have zero capability effects', async () => {
-  assert.equal(CONVERSATION_ACTION_NAMES.length, 12); assert.equal(TASK_WIRE.TASK_ACTION_NAMES.length, 33);
+  assert.equal(CONVERSATION_ACTION_NAMES.length, 12); assert.equal(TASK_WIRE.TASK_ACTION_NAMES.length, 37);
   assert.ok(TASK_WIRE.TASK_ACTION_NAMES.includes('allowNewFirstText'));
-  assert.deepEqual(TASK_WIRE.TASK_ACTION_NAMES.slice(-3), ['importLocalHistory', 'refreshLocalHistory', 'stopLocalHistory']);
+  assert.deepEqual(TASK_WIRE.TASK_ACTION_NAMES.slice(-7), ['importLocalHistory', 'refreshLocalHistory', 'stopLocalHistory', 'setDailyCardTime', 'refreshDailyCards', 'confirmDailyTodo', 'setDailyTodoState']);
   const f = fixture(), before = { ...f.count };
   const state = f.runtime.getState({ kind: 'task', sessionId: ORIGIN }); assert.equal(state.channel.setup.root, ROOT);
   assert.deepEqual(f.count, before);
@@ -338,4 +345,75 @@ test('runtime restart reuses the durable exact SID but never restores automatic 
   second.runtime.getState({ kind: 'task', sessionId: ORIGIN }); assert.deepEqual(second.count, before);
   assert.equal((await connect(second)).ok, true); assert.equal(second.count.creates, 0); assert.equal(second.count.ensures > 0, true);
   assert.equal(second.shared.domains.get('wechat_task_bindings_v1').get(ORIGIN).sessionId, TASK); await stop(second);
+});
+
+test('trusted startup restores confirmed history and replies on the exact Task without import or QR', async () => {
+  const first = fixture({ legacyHistory: true });
+  await connect(first); first.scan.resolve();
+  await eventually(() => taskState(first).channel.setup.phase === 'history-required');
+  await first.runtime.action({ kind: 'task', action: 'importLocalHistory', sessionId: TASK, autoUpdate: true, allowWechat: true, confirmation: 'import-own-wechat-history' });
+  await eventually(() => first.count.sends === 1);
+  const saved = first.shared.domains.get('wechat_task_bindings_v1').get(ORIGIN);
+  assert.equal(saved.intent.reply, true); assert.equal(saved.intent.history.accountRef, 'a'.repeat(12));
+  await first.runtime.dispose();
+  const second = fixture({ legacyHistory: true }, first.shared);
+  const before = { ...second.count }; taskState(second); assert.deepEqual(second.count, before);
+  await second.runtime.restore(); await eventually(() => second.count.sends === 1);
+  assert.equal(second.count.creates + second.count.qr + second.count.historyImports, 0);
+  assert.ok(second.count.historyHelpers >= 1); assert.equal(taskState(second).channel.localHistory.autoUpdate, true);
+  const helpers = second.count.historyHelpers; await second.runtime.restore(); assert.equal(second.count.historyHelpers, helpers);
+  await stop(second); await second.runtime.dispose();
+  const third = fixture({ legacyHistory: true }, second.shared); await third.runtime.restore();
+  assert.equal(third.count.polls + third.count.models + third.count.qr, 0);
+  assert.equal(taskState(third).channel.localHistory.enabled, true);
+});
+test('startup refuses changed account, pairing recovery, changed directory and uncertain native work', async () => {
+  const first = fixture({ legacyHistory: true }); await connect(first); first.scan.resolve();
+  await eventually(() => taskState(first).channel.setup.phase === 'history-required');
+  await first.runtime.action({ kind: 'task', action: 'importLocalHistory', sessionId: TASK, autoUpdate: true, allowWechat: true, confirmation: 'import-own-wechat-history' });
+  await eventually(() => first.count.sends === 1); await first.runtime.dispose();
+  for (const options of [{ changedAccount: true }, { changedPairing: true }, { pendingRecovery: true }, { historyUnknown: true }, { auditUnknown: true }]) {
+    const second = fixture({ legacyHistory: true, ...options }, first.shared); await second.runtime.restore();
+    assert.equal(second.count.polls + second.count.models + second.count.qr + second.count.historyImports, 0);
+    assert.equal(second.data.canShare(TASK), false); await second.runtime.dispose();
+  }
+  first.shared.sessions.get(ORIGIN).header.cwd = '/synthetic/changed-root';
+  const changed = fixture({ legacyHistory: true }, first.shared); await changed.runtime.restore();
+  assert.equal(changed.count.historyHelpers + changed.count.polls + changed.count.qr, 0);
+});
+test('legacy ready binding without run intent cannot trigger startup capabilities', async () => {
+  const f = fixture(); f.shared.domains.set('wechat_task_bindings_v1', new Map([[ORIGIN, { root: ROOT, sessionId: TASK, ready: true }]]));
+  await f.runtime.restore(); assert.equal(f.count.ensures + f.count.grants + f.count.historyHelpers + f.count.qr + f.count.polls, 0);
+});
+
+test('cold initiating conversation is checked through the public observation API; only the original Task resumes', async () => {
+  const first = fixture(); await connect(first); first.scan.resolve(); await eventually(() => first.count.sends === 1);
+  await first.runtime.dispose();
+  const second = fixture({ coldOrigin: true }, first.shared); await second.runtime.restore();
+  await eventually(() => second.count.sends === 1); assert.equal(second.count.creates + second.count.qr, 0);
+  assert.equal(second.shared.sessions.has(ORIGIN), false); assert.equal(taskState(second).sessionId, TASK); await stop(second);
+});
+
+test('service startup waits for workspace and filesystem dependencies before opening restoration state', async () => {
+  const ctx = new Context(); let opens = 0;
+  for (const name of ['agents', 'sessions', 'tools', 'agentPresets', 'sandboxPolicy', 'credentials']) ctx.reflect.provide(name, {});
+  ctx.reflect.provide('storageDomain', { async open(spec) { opens++; assert.equal(spec.name, 'wechat_task_bindings_v1');
+    return { table: () => ({ size: 0, entries: () => [], get: () => undefined }), close: async () => {} }; } });
+  new WechatRoService(ctx, { snapshotEnabled: false });
+  await delay(10); assert.equal(opens, 0); assert.equal(ctx.get('wechatConversation'), undefined);
+  ctx.reflect.provide('workspaceRegistry', {}); await delay(10); assert.equal(opens, 0);
+  ctx.reflect.provide('fs', {}); await eventually(() => opens === 1);
+  const service = ctx.get('wechatConversation'); assert.ok(service); await service.runtime.dispose();
+});
+
+test('stopping history updates keeps an established reply loop and removes history restart intent', async () => {
+  const f = fixture({ legacyHistory: true }); await connect(f); f.scan.resolve();
+  await eventually(() => taskState(f).channel.setup.phase === 'history-required');
+  await f.runtime.action({ kind: 'task', action: 'importLocalHistory', sessionId: TASK, autoUpdate: true, allowWechat: true, confirmation: 'import-own-wechat-history' });
+  await eventually(() => f.count.sends === 1);
+  const result = await f.runtime.action({ kind: 'task', action: 'stopLocalHistory', sessionId: TASK, confirmation: 'stop-local-history-updates' });
+  assert.equal(result.ok, true); assert.equal(taskState(f).channel.localHistory.enabled, false);
+  assert.equal(taskState(f).channel.automaticPolling, true);
+  const intent = f.shared.domains.get('wechat_task_bindings_v1').get(ORIGIN).intent;
+  assert.equal(intent.reply, true); assert.equal(intent.history, undefined); await stop(f);
 });

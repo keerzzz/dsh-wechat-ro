@@ -26,6 +26,8 @@ export interface ConversationRuntime {
   /** Explicit resumeConversation returns the same sessionId and sameSession: true, without restoring grants/bindings. */
   action(request: TaskConversationAction, signal?: AbortSignal): Promise<TaskConversationActionResult>;
   action(request: ConversationActionRequest, signal?: AbortSignal): Promise<ConversationActionResult>;
+  /** Trusted service startup; restores only persisted confirmed run intent. */
+  restore(): Promise<void>;
   dispose(): Promise<void>;
 }
 /** Trusted testing seams only; never accepted in profile config or a user RPC. */

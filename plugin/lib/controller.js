@@ -39,7 +39,7 @@ export class WechatRoService extends TypertRemoteService {
     this.maxRows = cfg.maxRows;
     this.store = methods.createContext(cfg);
     if (typeof ctx.inject === 'function') {
-      ctx.inject(['agents', 'sessions', 'tools', 'agentPresets', 'sandboxPolicy', 'storageDomain', 'credentials'], function registerWechatConversation(ctx) {
+      ctx.inject(['agents', 'sessions', 'tools', 'agentPresets', 'sandboxPolicy', 'storageDomain', 'credentials', 'workspaceRegistry', 'fs'], function registerWechatConversation(ctx) {
         // Separate namespace/consumer scope. Never return or await the child Fiber.
         new WechatConversationService(ctx, cfg);
       });

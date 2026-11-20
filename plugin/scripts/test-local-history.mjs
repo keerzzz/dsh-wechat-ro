@@ -109,3 +109,25 @@ for (const code of ['LOCAL_HISTORY_CLIENT_REQUIRED', 'SYNTHETIC_PRIVATE_FAILURE'
     await assert.rejects(runLocalHistory('import'), error => error.code === expected && error.message === expected);
   } finally { hooks.deregister(); }
 });
+
+test('restart uses refresh and verifies the expected account before any grant', async () => {
+  const commands = []; const f = fixture(async command => { commands.push(command); return row(1); });
+  await f.manager.resumeHistory('task', { autoUpdate: false, allowWechat: true, expectedAccount: 'a'.repeat(12) });
+  assert.deepEqual(commands, ['refresh']); assert.equal(f.grants.length, 1); assert.equal(f.manager.state('task').phase, 'ready');
+  await f.manager.dispose();
+  const mismatch = fixture(async () => row(1));
+  await mismatch.manager.resumeHistory('task', { autoUpdate: true, allowWechat: true, expectedAccount: 'b'.repeat(12) });
+  assert.equal(mismatch.grants.length, 0); assert.equal(mismatch.manager.state('task').enabled, false);
+  assert.equal(mismatch.manager.state('task').error, 'LOCAL_HISTORY_ACCOUNT_CHANGED'); await mismatch.manager.dispose();
+});
+test('missing client retries refresh on the existing timer then finishes recovery even with autoUpdate off', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let calls = 0, ticks = 0; const commands = [];
+  const f = fixture(async command => { commands.push(command); if (++calls === 1) throw Object.assign(new Error('client'), { code: 'LOCAL_HISTORY_CLIENT_REQUIRED' }); return row(1); },
+    { intervalMs: 1000, onTick: () => { ticks++; } });
+  await f.manager.resumeHistory('task', { autoUpdate: false, allowWechat: true, expectedAccount: 'a'.repeat(12) });
+  assert.equal(f.manager.state('task').enabled, true); assert.equal(f.grants.length, 0);
+  t.mock.timers.tick(1000); for (let i = 0; i < 20; i++) await Promise.resolve();
+  assert.deepEqual(commands, ['refresh', 'refresh']); assert.equal(f.grants.length, 1); assert.equal(ticks, 1);
+  t.mock.timers.tick(10000); assert.equal(calls, 2); await f.manager.dispose();
+});

@@ -345,11 +345,11 @@ function taskFixture(options = {}) {
         try {
           await data.grantWorkspace(TASK_SID, workspaceRequest, signal);
           if (options.creationBarrier) await options.creationBarrier.promise;
-          check(signal); entry(TASK_SID).prepared = true; return TASK_SID;
+          check(signal); entry(TASK_SID).prepared = true; liveSessions.set(TASK_SID, { header: { id: TASK_SID, cwd: TASK_WORKSPACE } }); return TASK_SID;
         } catch (error) { data.revokeAll(TASK_SID); throw error; }
       })());
     },
-    async ensure(id, signal) { check(signal); assert.equal(id, TASK_SID); counts.ensures++; entry(id).prepared = true; },
+    async ensure(id, signal) { check(signal); assert.equal(id, TASK_SID); counts.ensures++; entry(id).prepared = true; liveSessions.set(id, { header: { id, cwd: TASK_WORKSPACE } }); },
     isPrepared: id => id === TASK_SID && !bridgeDisposed && taskRecords.get(id)?.prepared === true,
     async reply(id, text, metadata, signal) { check(signal); assert.equal(id, TASK_SID); assert.equal(text, 'SYNTHETIC_TASK_PHONE_INPUT');
       assert.deepEqual(metadata, { messageId: options.realApi ? '1' : 'synthetic-task-phone-message' }); counts.replies++; return 'SYNTHETIC_TASK_REPLY'; },
@@ -393,13 +393,17 @@ function taskFixture(options = {}) {
     agents: {}, agentPresets: {}, sandboxPolicy: {}, fs: {},
     workspaceRegistry: { list: () => [workspaceEntity], get: id => id === workspaceEntity.id ? workspaceEntity : undefined,
       create: async () => workspaceEntity } };
+  const bindingRows = new Map();
   const deps = {
     ...(options.runLocalHistory ? { runLocalHistory: options.runLocalHistory } : {}),
     createArchiveAccess(hooks) { oldHooks = hooks; return archive; },
     createSessionBridge(_, config) { assert.equal(config.archive, archive); return legacyBridge; },
     createTaskAccess(context, config) { assert.equal(context, ctx); assert.equal(config.sourceRoot, ORIGINAL); assert.equal(typeof config.beforeArchiveQuery, 'function'); counts.dataConstructors++; return data; },
     createTaskSessionBridge(context, config) { assert.equal(context, ctx); assert.deepEqual(config, { data }); counts.bridgeConstructors++; return taskBridge; },
-    storageDomain: { async open(spec) { counts.oldOpen++; assert.equal(spec.name, 'wechat_native_ro_history_v1');
+    storageDomain: { async open(spec) {
+      if (spec.name === 'wechat_task_bindings_v1') return { table: () => ({ get size() { return bindingRows.size; }, get: id => bindingRows.get(id), entries: () => bindingRows.entries(),
+        put: async (id, value) => { bindingRows.set(id, spec.tables.contexts.valueSchema.parse(value)); } }), close: async () => {} };
+      counts.oldOpen++; assert.equal(spec.name, 'wechat_native_ro_history_v1');
       return { table(name) { assert.equal(name, 'sessions'); return { get size() { return oldRecords.size; }, get: id => oldRecords.get(id),
         async put(id, value) { counts.oldWrites++; oldRecords.set(id, value); },
         async update(id, transform) { counts.oldWrites++; const value = transform(oldRecords.get(id)); oldRecords.set(id, value); return value; } }; },
@@ -1116,7 +1120,7 @@ try {
     const f = taskFixture(), before = { ...f.counts };
     const request = { kind: 'task', action: 'allowNewFirstText', sessionId: TASK_SID,
       priorRunId: '10000000-0000-4000-8000-000000000001', priorConsentId: '20000000-0000-4000-8000-000000000001', confirmation: 'allow-new-first-text-after-unknown' };
-    assert.equal(TASK_WIRE.TASK_ACTION_NAMES.length, 35); assert.equal(TASK_WIRE.TASK_ACTION_NAMES.at(-1), 'refreshDailyCards');
+    assert.equal(TASK_WIRE.TASK_ACTION_NAMES.length, 37); assert.equal(TASK_WIRE.TASK_ACTION_NAMES.at(-1), 'setDailyTodoState');
     assert.equal(TASK_WIRE.actionSchema.safeParse(request).success, true); assert.equal(actionSchema.safeParse(request).success, false);
     const { kind, ...withoutKind } = request;
     for (const invalid of [withoutKind, { ...request, priorRunId: undefined }, { ...request, priorConsentId: undefined },
